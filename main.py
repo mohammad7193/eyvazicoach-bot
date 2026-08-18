@@ -67,58 +67,39 @@ def get_pexels_image(query):
     return None
 
 def send_post(caption, image_url):
+    # ۱. ارسال به تلگرام
     try:
-        # دانلود تصویر در رم سرور
         img_response = requests.get(image_url, timeout=15)
         img_data = img_response.content
         
-        # تعریف ساختار استاندارد فایل برای ارسال (الزامی برای بله)
-        files_payload = {
-            "photo": ("image.jpg", img_data, "image/jpeg")
+        tg_payload = {
+            "chat_id": TELEGRAM_CHAT,
+            "caption": caption,
+            "parse_mode": "HTML"
+        }
+        tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+        res_tg = requests.post(tg_url, data=tg_payload, files={"photo": ("image.jpg", img_data, "image/jpeg")})
+        print(f"Telegram Status: {res_tg.status_code}")
+    except Exception as e:
+        print(f"Telegram Error: {e}")
+
+    # ۲. ارسال به بله (الگوی موفق شتاب‌افزا: ارسال مستقیم لینک URL عکس به جای بایت‌های multipart در صورت ناسازگاری سرور)
+    try:
+        bale_caption = caption.replace('<b>', '').replace('</b>', '')
+        
+        bale_payload = {
+            "chat_id": BALE_CHAT,
+            "photo": image_url,  # ارسال لینک مستقیم تصویر به جای فایل باینری (مورد تایید مستندات و تست‌شده در شتاب‌افزا)
+            "caption": bale_caption
         }
         
-        # ==========================================
-        # ۱. ارسال به تلگرام (پشتیبانی از HTML)
-        # ==========================================
-        try:
-            tg_payload = {
-                "chat_id": TELEGRAM_CHAT,
-                "caption": caption,
-                "parse_mode": "HTML"
-            }
-            tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-            response_tg = requests.post(tg_url, data=tg_payload, files=files_payload)
-            print(f"Telegram Response: {response_tg.status_code}")
-        except Exception as e:
-            print(f"Telegram Error: {e}")
-
-        # ==========================================
-        # ۲. ارسال به بله (پشتیبانی فقط از متن/Markdown اختصاصی)
-        # ==========================================
-        try:
-            # پاک‌سازی تگ‌های HTML برای جلوگیری از چاپ عینی تگ‌ها در بله
-            bale_caption = caption.replace('<b>', '').replace('</b>', '')
-            
-            # دقت کن که parse_mode اینجا ارسال نمی‌شود
-            bale_payload = {
-                "chat_id": BALE_CHAT,
-                "caption": bale_caption
-            }
-            
-            bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
-            # ارسال مجدد متغیر files_payload به همراه نام و فرمت عکس
-            response_bale = requests.post(bale_url, data=bale_payload, files={"photo": ("image.jpg", img_data, "image/jpeg")})
-            print(f"Bale Response: {response_bale.status_code}")
-            
-            # اگر خطایی داد، متن ارور بله را چاپ کند تا دقیق متوجه شویم
-            if response_bale.status_code != 200:
-                print(f"Bale Error Detail: {response_bale.text}")
-                
-        except Exception as e:
-            print(f"Bale Error: {e}")
-
+        bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
+        res_bale = requests.post(bale_url, data=bale_payload, timeout=20)
+        print(f"Bale Status: {res_bale.status_code}")
+        print(f"Bale Response Text: {res_bale.text}")
+        
     except Exception as e:
-        print(f"General Posting Error: {e}")
+        print(f"Bale Error: {e}")
 
 if __name__ == "__main__":
     topic = get_current_topic()
@@ -126,6 +107,6 @@ if __name__ == "__main__":
     
     image_url = get_pexels_image(query)
     if not image_url:
-        image_url = get_pexels_image("office desk") # تصویر جایگزین
+        image_url = "https://images.pexels.com/photos/3184291/pexels-photo-3184291.jpeg" # لینک فال‌بک مستقیم و امن پکسلز
         
     send_post(caption, image_url)
