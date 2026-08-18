@@ -21,7 +21,7 @@ def get_current_topic():
     hour = datetime.datetime.now(iran_tz).hour
 
     if hour < 9:
-         return "یک پست صبح بخیر پرانرژی. یادآوری نعمت‌هایی که خدا به ما داده و شکرگزاری بابت زندگی. **قانون بسیار مهم:** به هیچ وجه، تحت هیچ شرایطی کلماتی مثل پول، مالیات، بیمه، حسابداری یا کسب‌وکار در این پست استفاده نشود."
+         return "یک پست صبح بخیر پرانرژی. یادآوری نعمت‌هایی که خدا به ما داده و شکرگزاری بابت زندگی. قانون بسیار مهم: به هیچ وجه، تحت هیچ شرایطی کلماتی مثل پول، مالیات، بیمه، حسابداری یا کسب‌وکار در این پست استفاده نشود."
     elif hour < 12:
          return "یک پست تخصصی و کاربردی درباره مسائل و قوانین مالیاتی."
     elif hour < 15:
@@ -83,30 +83,33 @@ def send_post(caption, image_url):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-    # ۲. ارسال به بله (الگوی موفق شتاب‌افزا: ارسال مستقیم لینک URL عکس به جای بایت‌های multipart در صورت ناسازگاری سرور)
+    # ۲. ارسال به بله (با گزارش‌گیری دقیق ارور)
     try:
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
         
         bale_payload = {
             "chat_id": BALE_CHAT,
-            "photo": image_url,  # ارسال لینک مستقیم تصویر به جای فایل باینری (مورد تایید مستندات و تست‌شده در شتاب‌افزا)
+            "photo": image_url,
             "caption": bale_caption
         }
         
         bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
         res_bale = requests.post(bale_url, data=bale_payload, timeout=20)
-        print(f"Bale Status: {res_bale.status_code}")
-        print(f"Bale Response Text: {res_bale.text}")
+        
+        print("--- BALE DEBUG REPORT ---")
+        print(f"Bale Status Code: {res_bale.status_code}")
+        print(f"Bale Raw Response: {res_bale.text}")
+        print("-------------------------")
         
     except Exception as e:
-        print(f"Bale Error: {e}")
+        print(f"Bale Connection Exception: {e}")
 
 if __name__ == "__main__":
     topic = get_current_topic()
     caption, query = generate_content(topic)
     
-    image_url = get_pexels_image(query)
+    image_url = get_pexels_query_image = get_pexels_image(query)
     if not image_url:
-        image_url = "https://images.pexels.com/photos/3184291/pexels-photo-3184291.jpeg" # لینک فال‌بک مستقیم و امن پکسلز
+        image_url = "https://images.pexels.com/photos/3184291/pexels-photo-3184291.jpeg"
         
     send_post(caption, image_url)
