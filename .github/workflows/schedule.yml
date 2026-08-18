@@ -1,0 +1,36 @@
+name: Eyvazi Coach Content Bot
+
+on:
+  schedule:
+    - cron: '30 4 * * *'   # ساعت 08:00 صبح ایران
+    - cron: '30 6 * * *'   # ساعت 10:00 صبح ایران
+    - cron: '30 10 * * *'  # ساعت 14:00 ظهر ایران
+    - cron: '30 12 * * *'  # ساعت 16:00 عصر ایران
+    - cron: '30 16 * * *'  # ساعت 20:00 شب ایران
+  workflow_dispatch:       # این خط امکان اجرای دستی برای تست را می‌دهد
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Automation Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+        run: python main.py
