@@ -2,6 +2,7 @@ import os
 import requests
 import datetime
 import pytz
+import random
 import google.generativeai as genai
 
 # دریافت متغیرهای محیطی
@@ -21,15 +22,50 @@ def get_current_topic():
     hour = datetime.datetime.now(iran_tz).hour
 
     if hour < 9:
-         return "یک پست صبح بخیر پرانرژی. یادآوری نعمت‌هایی که خدا به ما داده و شکرگزاری بابت زندگی. قانون بسیار مهم: به هیچ وجه، تحت هیچ شرایطی کلماتی مثل پول، مالیات، بیمه، حسابداری یا کسب‌وکار در این پست استفاده نشود."
+         topics = [
+             "Gratitude for the simple blessings in life.",
+             "Starting the day with positive energy and a clear mind.",
+             "Appreciating health, family, and a fresh morning.",
+             "Finding peace in the early hours before the rush of the day begins."
+         ]
+         base_rule = " STRICT RULE: NEVER mention finance, taxes, insurance, accounting, or business."
+         return random.choice(topics) + base_rule
+         
     elif hour < 12:
-         return "یک پست تخصصی و کاربردی درباره مسائل و قوانین مالیاتی."
+         topics = [
+             "Common mistakes businesses make with value-added tax (VAT).",
+             "How proper tax planning saves companies from bankruptcy.",
+             "Recent changes or essential rules in corporate tax laws.",
+             "The importance of transparency in tax declarations for startups."
+         ]
+         return random.choice(topics)
+         
     elif hour < 15:
-         return "آموزش کاربردی حسابداری برای مدیران."
+         topics = [
+             "Why cash flow management is more important than profit margins.",
+             "How to correctly read a basic balance sheet for non-accountants.",
+             "The difference between bookkeeping and strategic accounting.",
+             "Signs that a business urgently needs a professional accountant."
+         ]
+         return random.choice(topics)
+         
     elif hour < 18:
-         return "نکات کلیدی در مورد سامانه مودیان یا قوانین بیمه پرسنل."
+         topics = [
+             "Step-by-step logic of the Samaneh Moadiyan (Taxpayer System).",
+             "Consequences of ignoring employee insurance laws for employers.",
+             "How to legally optimize personnel insurance costs.",
+             "Deadline reminders and tips for submitting Moadiyan invoices."
+         ]
+         return random.choice(topics)
+         
     else:
-         return "تکنیک‌های مدیریت هزینه‌های کسب‌وکار یا زندگی شخصی."
+         topics = [
+             "The 50/30/20 rule for personal budget management.",
+             "Identifying and cutting hidden operational costs in a small business.",
+             "How inflation impacts purchasing power and how to hedge against it.",
+             "The psychological aspect of unnecessary spending and how to stop it."
+         ]
+         return random.choice(topics)
 
 def generate_content(topic):
     prompt = f"""
@@ -56,12 +92,15 @@ def generate_content(topic):
 
 def get_pexels_image(query):
     try:
-        url = f"https://api.pexels.com/v1/search?query={query}&per_page=1"
+        # دریافت 15 عکس برای جلوگیری از تکراری شدن تصاویر
+        url = f"https://api.pexels.com/v1/search?query={query}&per_page=15"
         headers = {"Authorization": PEXELS_API_KEY}
         response = requests.get(url, headers=headers, timeout=10).json()
         
         if "photos" in response and len(response["photos"]) > 0:
-            return response["photos"][0]["src"]["large"]
+            # انتخاب تصادفی یک عکس از لیست نتایج
+            random_photo = random.choice(response["photos"])
+            return random_photo["src"]["large"]
     except Exception as e:
         print(f"Pexels Error: {e}")
     return None
@@ -83,8 +122,9 @@ def send_post(caption, image_url):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-    # ۲. ارسال به بله (با گزارش‌گیری دقیق ارور)
+    # ۲. ارسال به بله (الگوی موفق: ارسال مستقیم لینک عکس)
     try:
+        # پاک‌سازی تگ‌های HTML برای جلوگیری از به‌هم‌ریختگی در بله
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
         
         bale_payload = {
@@ -108,8 +148,9 @@ if __name__ == "__main__":
     topic = get_current_topic()
     caption, query = generate_content(topic)
     
-    image_url = get_pexels_query_image = get_pexels_image(query)
+    image_url = get_pexels_image(query)
     if not image_url:
+        # لینک امن جایگزین در صورت قطعی پکسلز
         image_url = "https://images.pexels.com/photos/3184291/pexels-photo-3184291.jpeg"
         
     send_post(caption, image_url)
