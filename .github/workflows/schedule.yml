@@ -1,13 +1,15 @@
-name: Eyvazi Coach Content Bot
+name: Eyvazi Coach Automation
 
 on:
   schedule:
-    - cron: '30 4 * * *'   # ساعت 08:00 صبح ایران
-    - cron: '30 6 * * *'   # ساعت 10:00 صبح ایران
-    - cron: '30 10 * * *'  # ساعت 14:00 ظهر ایران
-    - cron: '30 12 * * *'  # ساعت 16:00 عصر ایران
-    - cron: '30 16 * * *'  # ساعت 20:00 شب ایران
-  workflow_dispatch:       # این خط امکان اجرای دستی برای تست را می‌دهد
+    - cron: '30 6 * * *'   # 10:00 AM Iran Time (Educational)
+    - cron: '30 9 * * *'   # 13:00 PM Iran Time (News)
+    - cron: '30 12 * * *'  # 16:00 PM Iran Time (Educational)
+    - cron: '30 15 * * *'  # 19:00 PM Iran Time (News)
+  workflow_dispatch:
+
+permissions:
+  contents: write  # اجازه ذخیره فایل تاریخچه در مخزن گیت‌هاب
 
 jobs:
   run-bot:
@@ -34,3 +36,12 @@ jobs:
           BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
           BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
         run: python main.py
+
+      - name: Commit and Push History
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add history.txt
+          # اگر فایلی تغییر نکرده بود خطا ندهد
+          git commit -m "Update post history [skip ci]" || echo "No changes to commit"
+          git push
