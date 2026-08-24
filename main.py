@@ -6,7 +6,7 @@ import random
 import feedparser
 import google.generativeai as genai
 
-# متغیرهای محیطی
+# دریافت ایمن متغیرهای محیطی از GitHub Secrets
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -47,7 +47,7 @@ def determine_post_type():
     iran_tz = pytz.timezone('Asia/Tehran')
     hour = datetime.datetime.now(iran_tz).hour
     
-    # ساعت‌های آموزشی: 10 و 16 / ساعت‌های خبری: 13 و 19
+    # ساعات آموزشی: 10 و 16 / ساعات خبری: 13 و 19
     if hour in [9, 10, 11, 15, 16, 17]:
         return "edu"
     else:
@@ -60,13 +60,12 @@ def generate_content():
     if post_type == "news":
         news_title, news_link = get_latest_news(history)
         if not news_title:
-            print("خبر جدیدی یافت نشد. خروج از برنامه برای جلوگیری از ارسال محتوای فیک.")
+            print("خبر جدیدی یافت نشد. خروج از برنامه.")
             exit(0)
             
         topic_context = f"خبر موثق اقتصادی/مالیاتی: {news_title}"
         save_history(news_title)
     else:
-        # موضوعات فوق‌تخصصی، ریز و کاربردی (بدون کلی‌گویی)
         micro_topics = [
             "نحوه ابطال یا اصلاح صورتحساب الکترونیکی در سامانه مودیان در صورت درج قیمت اشتباه",
             "حدمجاز فروش ماده ۶ قانون پایانه‌های فروشگاهی و نحوه افزایش آن",
@@ -88,38 +87,48 @@ def generate_content():
         topic_context = f"نکته فنی و اجرایی: {selected_topic}"
         save_history(selected_topic)
 
+    # پرامپت کاملاً هوشمند شده برای تناسب ۱۰۰ درصدی عکس و متن
     prompt = f"""
     You are a senior tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale.
     Topic: "{topic_context}"
     
     STRICT CONTENT GUIDELINES:
-    1. AVOID GENERALIZATIONS: Be highly specific, factual, and straight to the point. Do not use generic filler words, fluff, or state the obvious.
-    2. NEWS ACCURACY (CRITICAL): If the topic is a news update, you MUST stick exactly to the provided facts in the topic. DO NOT alter, invent, change numbers, or hallucinate any information.
-    3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING or MARKETING. DO NOT use promotional phrases like "در این دوره", "ثبت نام کنید", etc.
+    1. AVOID GENERALIZATIONS: Be highly specific, factual, and straight to the point.
+    2. NEWS ACCURACY: If it's a news update, you MUST stick exactly to the provided facts.
+    3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING or MARKETING.
     4. Structure: 
-       - Line 1: Strong technical/news title with 1 relevant emoji (e.g. 📌, ⚖️, or 📰).
-       - Paragraph 1 (3-4 lines): The exact legal rule, procedural step, or news summary without fluff.
-       - Paragraph 2 (1 short line): The key takeaway or actionable advice.
+       - Line 1: Strong technical/news title with 1 relevant emoji.
+       - Paragraph 1 (3-4 lines): Exact legal rule or news summary.
+       - Paragraph 2 (1 short line): Key actionable advice.
        - Last line: @eyvazicoach
     5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
     6. Length: 60 to 90 words maximum.
     
-    After the text, output exactly "---" on a new line, then provide a 1-3 words English query for Pexels.
-    IMAGE QUERY RULES: Only inanimate office objects (e.g. "fountain pen document", "vintage calculator", "financial ledger", "office stamps"). NO humans, NO abstract concepts.
+    After the text, output exactly "---" on a new line.
+    
+    IMAGE QUERY RULES (CRITICAL):
+    Analyze the Persian text you just wrote. Find the most important keyword or concept.
+    Then, translate that concept into EXACTLY 1 to 3 English words representing a TANGIBLE, PHYSICAL OBJECT for the Pexels API.
+    - If text is about laws/contracts -> use "legal document", "fountain pen", "gavel"
+    - If text is about calculations/tax -> use "calculator", "financial charts", "ledger"
+    - If text is about online systems/Moadiyan -> use "laptop keyboard", "computer screen"
+    - If text is about fines/money -> use "coins", "wallet", "safe box"
+    
+    NEVER use abstract concepts (e.g., "tax", "finance", "growth").
+    NEVER use human-related terms. MUST be an inanimate object.
     """
     
     response = model.generate_content(prompt)
     content = response.text.split("---")
     
     caption = content[0].strip()
-    image_query = content[1].strip() if len(content) > 1 else "business papers"
+    image_query = content[1].strip() if len(content) > 1 else "office desk"
     
     return caption, image_query
 
 def get_pexels_image(query):
     try:
-        safe_query = query + " still life office"
-        url = f"https://api.pexels.com/v1/search?query={safe_query}&per_page=15"
+        url = f"https://api.pexels.com/v1/search?query={query}&per_page=15"
         headers = {"Authorization": PEXELS_API_KEY}
         response = requests.get(url, headers=headers, timeout=10).json()
         
@@ -128,10 +137,10 @@ def get_pexels_image(query):
             return random_photo["src"]["large"]
     except Exception as e:
         print(f"Pexels Error: {e}")
-    return "https://images.pexels.com/photos/53621/calculator-calculation-insurance-finance-53621.jpeg"
+    return "https://images.pexels.com/photos/45708/pexels-photo-45708.jpeg"
 
 def send_post(caption, image_url):
-    # ۱. تلگرام
+    # ارسال به تلگرام
     try:
         img_response = requests.get(image_url, timeout=15)
         img_data = img_response.content
@@ -143,7 +152,7 @@ def send_post(caption, image_url):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-    # ۲. بله
+    # ارسال به بله
     try:
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
         bale_payload = {"chat_id": BALE_CHAT, "photo": image_url, "caption": bale_caption}
@@ -155,5 +164,6 @@ def send_post(caption, image_url):
 
 if __name__ == "__main__":
     caption, query = generate_content()
+    print(f"Generated Contextual Object Query: {query}") 
     image_url = get_pexels_image(query)
     send_post(caption, image_url)
