@@ -34,13 +34,23 @@ def save_history(title):
             f.write(item + "\n")
 
 def get_latest_news(history):
-    rss_urls = ["https://www.tasnimnews.com/fa/rss/feed/0/8/0/"]
+    # منابع خبری جدید، تخصصی حقوقی/مالیاتی و بدون مشکل مسدودیت سرور خارجی
+    rss_urls = [
+        "https://shenasname.ir/feed/",              # شناسنامه قانون (بخشنامه‌ها و قوانین)
+        "https://tejaratnews.com/feed/",            # تجارت نیوز (اقتصاد و کسب‌وکار)
+        "https://www.eghtesadonline.com/fa/feeds/"  # اقتصاد آنلاین
+    ]
+    
     for url in rss_urls:
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:10]:
-            title = entry.title
-            if title not in history:
-                return title, entry.link
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:5]: # بررسی ۵ خبر اول هر سایت
+                title = entry.title
+                if title not in history:
+                    return title, entry.link
+        except Exception:
+            continue # اگر سایتی در دسترس نبود، برو سراغ سایت بعدی
+            
     return None, None
 
 def determine_post_type():
@@ -60,12 +70,14 @@ def generate_content():
     if post_type == "news":
         news_title, news_link = get_latest_news(history)
         if not news_title:
-            print("خبر جدیدی یافت نشد. خروج از برنامه.")
-            exit(0)
+            # اینجا قانون رو عوض کردیم: اگر خبر نبود، کلا خارج شو و محتوای الکی نساز
+            print("خبر جدیدی در سایت‌های اقتصادی و حقوقی یافت نشد. خروج از برنامه.")
+            exit(0) 
             
         topic_context = f"خبر موثق اقتصادی/مالیاتی: {news_title}"
         save_history(news_title)
-    else:
+            
+    elif post_type == "edu":
         micro_topics = [
             "نحوه ابطال یا اصلاح صورتحساب الکترونیکی در سامانه مودیان در صورت درج قیمت اشتباه",
             "حدمجاز فروش ماده ۶ قانون پایانه‌های فروشگاهی و نحوه افزایش آن",
@@ -87,7 +99,6 @@ def generate_content():
         topic_context = f"نکته فنی و اجرایی: {selected_topic}"
         save_history(selected_topic)
 
-    # پرامپت کاملاً هوشمند شده برای تناسب ۱۰۰ درصدی عکس و متن
     prompt = f"""
     You are a senior tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale.
     Topic: "{topic_context}"
