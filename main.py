@@ -6,7 +6,7 @@ import random
 import feedparser
 import google.generativeai as genai
 
-# دریافت ایمن متغیرهای محیطی از GitHub Secrets
+# دریافت ایمن متغیرهای محیطی از فایل YML
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -34,22 +34,21 @@ def save_history(title):
             f.write(item + "\n")
 
 def get_latest_news(history):
-    # منابع خبری جدید، تخصصی حقوقی/مالیاتی و بدون مشکل مسدودیت سرور خارجی
     rss_urls = [
-        "https://shenasname.ir/feed/",              # شناسنامه قانون (بخشنامه‌ها و قوانین)
-        "https://tejaratnews.com/feed/",            # تجارت نیوز (اقتصاد و کسب‌وکار)
-        "https://www.eghtesadonline.com/fa/feeds/"  # اقتصاد آنلاین
+        "https://shenasname.ir/feed/",              
+        "https://tejaratnews.com/feed/",            
+        "https://www.eghtesadonline.com/fa/feeds/"  
     ]
     
     for url in rss_urls:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:5]: # بررسی ۵ خبر اول هر سایت
+            for entry in feed.entries[:5]:
                 title = entry.title
                 if title not in history:
                     return title, entry.link
         except Exception:
-            continue # اگر سایتی در دسترس نبود، برو سراغ سایت بعدی
+            continue 
             
     return None, None
 
@@ -57,7 +56,6 @@ def determine_post_type():
     iran_tz = pytz.timezone('Asia/Tehran')
     hour = datetime.datetime.now(iran_tz).hour
     
-    # ساعات آموزشی: 10 و 16 / ساعات خبری: 13 و 19
     if hour in [9, 10, 11, 15, 16, 17]:
         return "edu"
     else:
@@ -70,8 +68,7 @@ def generate_content():
     if post_type == "news":
         news_title, news_link = get_latest_news(history)
         if not news_title:
-            # اینجا قانون رو عوض کردیم: اگر خبر نبود، کلا خارج شو و محتوای الکی نساز
-            print("خبر جدیدی در سایت‌های اقتصادی و حقوقی یافت نشد. خروج از برنامه.")
+            print("خبر جدیدی یافت نشد. خروج از برنامه.")
             exit(0) 
             
         topic_context = f"خبر موثق اقتصادی/مالیاتی: {news_title}"
@@ -151,7 +148,6 @@ def get_pexels_image(query):
     return "https://images.pexels.com/photos/45708/pexels-photo-45708.jpeg"
 
 def send_post(caption, image_url):
-    # ارسال به تلگرام
     try:
         img_response = requests.get(image_url, timeout=15)
         img_data = img_response.content
@@ -163,7 +159,6 @@ def send_post(caption, image_url):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-    # ارسال به بله
     try:
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
         bale_payload = {"chat_id": BALE_CHAT, "photo": image_url, "caption": bale_caption}
