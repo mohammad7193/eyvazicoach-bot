@@ -6,7 +6,7 @@ import random
 import feedparser
 import google.generativeai as genai
 
-# دریافت ایمن متغیرهای محیطی از فایل YML
+# دریافت ایمن متغیرهای محیطی
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -28,13 +28,13 @@ def load_history():
 def save_history(title):
     history = load_history()
     history.append(title)
-    history = history[-50:]
+    # نگهداری ۱۰۰ عنوان آخر برای جلوگیری از تکرار طولانی‌مدت
+    history = history[-100:]
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         for item in history:
             f.write(item + "\n")
 
 def extract_image_from_entry(entry):
-    # تلاش برای پیدا کردن عکس خبر از داخل فید RSS
     if hasattr(entry, 'enclosures'):
         for enc in entry.enclosures:
             if 'type' in enc and 'image' in enc['type']:
@@ -62,7 +62,6 @@ def get_latest_news(history):
             for entry in feed.entries[:5]:
                 title = entry.title
                 if title not in history:
-                    # پیدا کردن لینک عکس خبر (در صورت وجود)
                     image_url = extract_image_from_entry(entry)
                     return title, entry.link, image_url
         except Exception:
@@ -89,16 +88,14 @@ def generate_content():
             print("خبر جدیدی یافت نشد. خروج از برنامه.")
             exit(0) 
             
-        topic_context = f"خبر موثق اقتصادی/مالیاتی: {news_title}"
         save_history(news_title)
         
-        # پرامپت مخصوص خبر (بدون نیاز به پکسلز)
         prompt = f"""
-        You are a senior tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale.
-        Topic: "{topic_context}"
+        You are a senior tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale in Persian (Farsi).
+        Topic: "خبر اقتصادی: {news_title}"
         
         STRICT CONTENT GUIDELINES:
-        1. AVOID GENERALIZATIONS: Be highly specific, factual, and straight to the point.
+        1. AVOID GENERALIZATIONS: Be highly specific and factual.
         2. NEWS ACCURACY: MUST stick exactly to the provided facts.
         3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING or MARKETING.
         4. Structure: 
@@ -111,39 +108,25 @@ def generate_content():
         """
         response = model.generate_content(prompt)
         caption = response.text.strip()
-        # برگرداندن نوع پست، متن و عکس خود خبر
         return post_type, caption, news_img
         
     elif post_type == "edu":
-        micro_topics = [
-            "نحوه ابطال یا اصلاح صورتحساب الکترونیکی در سامانه مودیان در صورت درج قیمت اشتباه",
-            "حدمجاز فروش ماده ۶ قانون پایانه‌های فروشگاهی و نحوه افزایش آن",
-            "مهلت ۲۱ روزه خریدار برای تایید یا رد صورتحساب در کارپوشه و عواقب عدم اقدام",
-            "تفاوت قرارداد کار معین و قرارداد کار موقت و نحوه محاسبه سنوات پرسنل",
-            "جرایم ماده ۱۶۹ مکرر مالیات‌های مستقیم در صورت عدم ارسال معاملات فصلی",
-            "روش اصولی تفکیک حساب‌های تجاری از شخصی برای جلوگیری از تشخیص درآمد غیرواقعی",
-            "نحوه محاسبه استهلاک دارایی‌های ثابت طبق جدول ماده ۱۴۹ قانون مالیات‌ها",
-            "مسئولیت تضامنی مدیران شرکت در پرداخت بدهی‌های مالیاتی و تامین اجتماعی",
-            "آیا به عیدی و پاداش پایان سال پرسنل حق بیمه تامین اجتماعی تعلق می‌گیرد؟",
-            "هزینه‌های قابل قبول مالیاتی طبق ماده ۱۴۷ و ۱۴۸ که ممیز نمی‌تواند رد کند"
-        ]
+        # ارسال تاریخچه ۲۰ پست اخیر به هوش مصنوعی برای جلوگیری از تکرار
+        recent_topics = "\n".join(history[-20:]) if history else "هیچ پستی تا الان منتشر نشده"
         
-        available_topics = [t for t in micro_topics if t not in history]
-        if not available_topics:
-            available_topics = micro_topics
-            
-        selected_topic = random.choice(available_topics)
-        topic_context = f"نکته فنی و اجرایی: {selected_topic}"
-        save_history(selected_topic)
-
-        # پرامپت مخصوص آموزش (نیازمند استخراج کلمه کلیدی پکسلز)
         prompt = f"""
-        You are a senior tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale.
-        Topic: "{topic_context}"
+        You are a senior Iranian tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale in Persian (Farsi).
+        
+        CRITICAL RULE 1 (NO REPETITION):
+        Do NOT write about any of these topics. They were recently published:
+        {recent_topics}
+        
+        CRITICAL RULE 2 (UP-TO-DATE & DYNAMIC):
+        Choose a COMPLETELY NEW, highly specific, and up-to-date technical rule regarding Iranian tax laws (e.g. Samaneh Moadiyan, value-added tax), labor law, or insurance. DO NOT write basic definitions. Dive into a specific legal exception, penalty, or deadline.
         
         STRICT CONTENT GUIDELINES:
         1. AVOID GENERALIZATIONS: Be highly specific, factual, and straight to the point.
-        2. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING or MARKETING.
+        2. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING.
         3. Structure: 
            - Line 1: Strong technical title with 1 relevant emoji.
            - Paragraph 1 (3-4 lines): Exact legal rule or tip.
@@ -155,16 +138,19 @@ def generate_content():
         After the text, output exactly "---" on a new line.
         
         IMAGE QUERY RULES (CRITICAL):
-        Analyze the Persian text you just wrote. Find the most important keyword or concept.
+        Analyze the Persian text you just wrote. Find the most important keyword.
         Then, translate that concept into EXACTLY 1 to 3 English words representing a TANGIBLE, PHYSICAL OBJECT for the Pexels API.
-        NEVER use abstract concepts (e.g., "tax", "finance", "growth").
-        NEVER use human-related terms. MUST be an inanimate object.
+        NEVER use abstract concepts. NEVER use human-related terms. MUST be an inanimate object.
         """
         response = model.generate_content(prompt)
         content = response.text.split("---")
         caption = content[0].strip()
         image_query = content[1].strip() if len(content) > 1 else "office desk"
-        # برگرداندن نوع پست، متن و کلمه کلیدی عکس
+        
+        # استخراج تیتر نوشته شده و ذخیره آن در تاریخچه
+        generated_title = caption.split('\n')[0].replace('<b>', '').replace('</b>', '').strip()
+        save_history(generated_title)
+        
         return post_type, caption, image_query
 
 def get_pexels_image(query):
@@ -181,7 +167,6 @@ def get_pexels_image(query):
     return "https://images.pexels.com/photos/45708/pexels-photo-45708.jpeg"
 
 def send_post(caption, image_url=None):
-    # --- ارسال به تلگرام ---
     if image_url:
         try:
             img_response = requests.get(image_url, timeout=15)
@@ -193,7 +178,6 @@ def send_post(caption, image_url=None):
         except Exception as e:
             print(f"Telegram Photo Error: {e}")
     else:
-        # اگر عکسی وجود نداشت، فقط متن خبر را ارسال کن
         try:
             tg_payload = {"chat_id": TELEGRAM_CHAT, "text": caption, "parse_mode": "HTML"}
             tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -202,7 +186,6 @@ def send_post(caption, image_url=None):
         except Exception as e:
             print(f"Telegram Text Error: {e}")
 
-    # --- ارسال به بله ---
     bale_caption = caption.replace('<b>', '').replace('</b>', '')
     if image_url:
         try:
@@ -213,7 +196,6 @@ def send_post(caption, image_url=None):
         except Exception as e:
             print(f"Bale Photo Error: {e}")
     else:
-        # اگر عکسی وجود نداشت، فقط متن خبر را ارسال کن
         try:
             bale_payload = {"chat_id": BALE_CHAT, "text": bale_caption}
             bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
@@ -226,11 +208,9 @@ if __name__ == "__main__":
     post_type, caption, resource = generate_content()
     
     if post_type == "news":
-        # resource همان لینک عکس اصلی خبر است (ممکن است خالی باشد)
         print(f"اجرای پست خبری. عکس همراه خبر: {resource}")
         send_post(caption, image_url=resource)
     else:
-        # resource همان کلمه کلیدی پکسلز است
         print(f"اجرای پست آموزشی. جستجوی پکسلز با کلمه: {resource}") 
         image_url = get_pexels_image(resource)
         send_post(caption, image_url=image_url)
