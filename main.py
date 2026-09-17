@@ -48,17 +48,27 @@ def extract_image_from_entry(entry):
                 return link['href']
     return None
 
-def get_latest_news(history):
-    rss_urls = [
-        "https://shenasname.ir/feed/",              
-        "https://tejaratnews.com/feed/",            
-        "https://www.eghtesadonline.com/fa/feeds/"  
-    ]
+def get_latest_content(history, category="general"):
+    # دسته‌بندی منابع بر اساس درخواست: منابع اصلی برای آموزش، و ترکیب منابع برای اخبار
+    if category == "official_rules":
+        rss_urls = [
+            "https://www.intamedia.ir/rss",  # سازمان امور مالیاتی
+            "https://news.tamin.ir/rss"      # سازمان تامین اجتماعی
+        ]
+    else:
+        rss_urls = [
+            "https://www.intamedia.ir/rss",
+            "https://news.tamin.ir/rss",
+            "https://tejaratnews.com/feed/",
+            "https://shenasname.ir/feed/"
+        ]
+    
+    random.shuffle(rss_urls) # جلوگیری از خواندن تکراری یک سایت خاص
     
     for url in rss_urls:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:5]:
+            for entry in feed.entries[:8]:
                 title = entry.title
                 if title not in history:
                     image_url = extract_image_from_entry(entry)
@@ -82,7 +92,7 @@ def generate_content():
     post_type = determine_post_type()
     
     if post_type == "news":
-        news_title, news_link, news_img = get_latest_news(history)
+        news_title, news_link, news_img = get_latest_content(history, "general")
         if not news_title:
             print("خبر جدیدی یافت نشد. خروج از برنامه.")
             exit(0) 
@@ -90,17 +100,19 @@ def generate_content():
         save_history(news_title)
         
         prompt = f"""
-        You are a senior tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale in Persian (Farsi).
-        Topic: "خبر اقتصادی: {news_title}"
+        You are an expert Iranian financial and social coach writing for Telegram/Bale in Persian (Farsi).
+        Topic: "خبر جدید: {news_title}"
+        
+        TARGET AUDIENCE: General public, workers, employees, retirees, shopkeepers, and small business owners.
         
         STRICT CONTENT GUIDELINES:
-        1. AVOID GENERALIZATIONS: Be highly specific and factual.
-        2. NEWS ACCURACY: MUST stick exactly to the provided facts. DO NOT invent details.
-        3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING or MARKETING.
+        1. RELATABILITY: Explain this news simply. How does it affect ordinary people's lives, pockets, or small shops? Avoid heavy corporate jargon.
+        2. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers or deadlines.
+        3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING.
         4. Structure: 
-           - Line 1: Strong news title with 1 relevant emoji.
-           - Paragraph 1 (3-4 lines): News summary without fluff.
-           - Paragraph 2 (1 short line): Key actionable advice based on the news.
+           - Line 1: Catchy, relatable title with 1 emoji (e.g. 📰, 🛒, 🏢).
+           - Paragraph 1 (3-4 lines): Simple summary of the news.
+           - Paragraph 2 (1 short line): Practical advice or takeaway for the average person/worker.
            - Last line: @eyvazicoach
         5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         6. Length: 60 to 90 words maximum.
@@ -110,51 +122,58 @@ def generate_content():
         return post_type, caption, news_img
         
     elif post_type == "edu":
-        recent_topics = "\n".join(history[-20:]) if history else "هیچ پستی تا الان منتشر نشده"
+        # دریافت قانون/بخشنامه جدید از تامین اجتماعی یا امور مالیاتی
+        rule_title, rule_link, rule_img = get_latest_content(history, "official_rules")
+        if not rule_title:
+            print("قانون یا بخشنامه جدیدی یافت نشد. خروج از برنامه.")
+            exit(0)
+            
+        save_history(rule_title)
         
         prompt = f"""
-        You are a senior Iranian tax, accounting, and business coach writing a post for managers on Telegram/Bale in Persian (Farsi).
+        You are a friendly Iranian legal/financial coach helping everyday people on Telegram/Bale in Persian (Farsi).
+        Official Rule/Circular to explain: "{rule_title}"
         
-        CRITICAL RULE 1 (ANTI-HALLUCINATION):
-        DO NOT write specific numbers, deadlines (like 12 days or 21 days), exact penalty percentages, or specific article numbers of Iranian tax law. Your internal knowledge might be outdated.
-        Instead, focus on universal business management, general accounting principles, cash-flow management, HR strategies, or the *conceptual* importance of compliance (e.g., "Why timely invoicing matters").
-
-        CRITICAL RULE 2 (NO REPETITION):
-        Do NOT write about any of these recently published topics:
-        {recent_topics}
+        TARGET AUDIENCE: Workers, shopkeepers, employees, retirees, and everyday citizens.
         
         STRICT CONTENT GUIDELINES:
-        1. AVOID GENERALIZATIONS: Provide a practical, conceptual business tip.
-        2. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING.
-        3. Structure: 
-           - Line 1: Strong conceptual title with 1 relevant emoji.
-           - Paragraph 1 (3-4 lines): Conceptual explanation or business principle.
-           - Paragraph 2 (1 short line): Key actionable management advice.
+        1. SIMPLIFY THE LAW: Convert this dry official rule into a simple, practical educational tip. Explain what it means for a worker's rights, a shopkeeper's taxes, or a retiree's pension.
+        2. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages or penalty days.
+        3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING.
+        4. Structure: 
+           - Line 1: Engaging, clear title with 1 emoji (e.g. 💡, ☂️, ⚖️).
+           - Paragraph 1 (3-4 lines): Simple explanation of the rule.
+           - Paragraph 2 (1 short line): Actionable tip for the ordinary citizen or small business.
            - Last line: @eyvazicoach
-        4. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
-        5. Length: 60 to 90 words maximum.
+        5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
+        6. Length: 60 to 90 words maximum.
         
         After the text, output exactly "---" on a new line.
         
         IMAGE QUERY RULES (CRITICAL):
-        To prevent images with foreign currencies or foreign text, output EXACTLY ONE of the following safe keywords for Pexels. DO NOT write anything else:
-        calculator
-        laptop keyboard
-        coffee mug
-        blank notebook
+        We need a visually neutral image that does NOT show foreign text, foreign money, or non-Iranian documents.
+        Output EXACTLY ONE of the following safe keywords for Pexels. DO NOT write anything else:
+        tea cup desk
+        blank notebook pen
+        simple calculator
         office plant
+        empty meeting room
         """
         response = model.generate_content(prompt)
         content = response.text.split("---")
         caption = content[0].strip()
-        image_query = content[1].strip() if len(content) > 1 else "calculator"
         
-        generated_title = caption.split('\n')[0].replace('<b>', '').replace('</b>', '').strip()
-        save_history(generated_title)
-        
-        return post_type, caption, image_query
+        # اگر خبر اصلی عکس داشته باشد، عکس ایرانی را استفاده می‌کنیم. در غیر این صورت پکسلز با کلمات امن.
+        if rule_img:
+            image_query = "USE_ORIGINAL_IMAGE"
+        else:
+            image_query = content[1].strip() if len(content) > 1 else "simple calculator"
+            
+        return post_type, caption, rule_img if rule_img else image_query
 
 def get_pexels_image(query):
+    if query == "USE_ORIGINAL_IMAGE":
+        return None # نیازی به پکسلز نیست
     try:
         url = f"https://api.pexels.com/v1/search?query={query}&per_page=15"
         headers = {"Authorization": PEXELS_API_KEY}
@@ -212,6 +231,10 @@ if __name__ == "__main__":
         print(f"اجرای پست خبری. عکس همراه خبر: {resource}")
         send_post(caption, image_url=resource)
     else:
-        print(f"اجرای پست آموزشی. جستجوی پکسلز با کلمه: {resource}") 
-        image_url = get_pexels_image(resource)
-        send_post(caption, image_url=image_url)
+        if resource and resource.startswith("http"):
+            print(f"اجرای پست آموزشی. استفاده از عکس رسمی سایت.")
+            send_post(caption, image_url=resource)
+        else:
+            print(f"اجرای پست آموزشی. جستجوی پکسلز با کلمه خنثی: {resource}") 
+            image_url = get_pexels_image(resource)
+            send_post(caption, image_url=image_url)
