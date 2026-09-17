@@ -28,7 +28,6 @@ def load_history():
 def save_history(title):
     history = load_history()
     history.append(title)
-    # نگهداری ۱۰۰ عنوان آخر برای جلوگیری از تکرار طولانی‌مدت
     history = history[-100:]
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         for item in history:
@@ -96,10 +95,10 @@ def generate_content():
         
         STRICT CONTENT GUIDELINES:
         1. AVOID GENERALIZATIONS: Be highly specific and factual.
-        2. NEWS ACCURACY: MUST stick exactly to the provided facts.
+        2. NEWS ACCURACY: MUST stick exactly to the provided facts. DO NOT invent details.
         3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING or MARKETING.
         4. Structure: 
-           - Line 1: Strong news title with 1 relevant emoji (like 📰 or ⚖️).
+           - Line 1: Strong news title with 1 relevant emoji.
            - Paragraph 1 (3-4 lines): News summary without fluff.
            - Paragraph 2 (1 short line): Key actionable advice based on the news.
            - Last line: @eyvazicoach
@@ -111,26 +110,26 @@ def generate_content():
         return post_type, caption, news_img
         
     elif post_type == "edu":
-        # ارسال تاریخچه ۲۰ پست اخیر به هوش مصنوعی برای جلوگیری از تکرار
         recent_topics = "\n".join(history[-20:]) if history else "هیچ پستی تا الان منتشر نشده"
         
         prompt = f"""
-        You are a senior Iranian tax and accounting consultant writing a direct, high-value post for business managers on Telegram/Bale in Persian (Farsi).
+        You are a senior Iranian tax, accounting, and business coach writing a post for managers on Telegram/Bale in Persian (Farsi).
         
-        CRITICAL RULE 1 (NO REPETITION):
-        Do NOT write about any of these topics. They were recently published:
+        CRITICAL RULE 1 (ANTI-HALLUCINATION):
+        DO NOT write specific numbers, deadlines (like 12 days or 21 days), exact penalty percentages, or specific article numbers of Iranian tax law. Your internal knowledge might be outdated.
+        Instead, focus on universal business management, general accounting principles, cash-flow management, HR strategies, or the *conceptual* importance of compliance (e.g., "Why timely invoicing matters").
+
+        CRITICAL RULE 2 (NO REPETITION):
+        Do NOT write about any of these recently published topics:
         {recent_topics}
         
-        CRITICAL RULE 2 (UP-TO-DATE & DYNAMIC):
-        Choose a COMPLETELY NEW, highly specific, and up-to-date technical rule regarding Iranian tax laws (e.g. Samaneh Moadiyan, value-added tax), labor law, or insurance. DO NOT write basic definitions. Dive into a specific legal exception, penalty, or deadline.
-        
         STRICT CONTENT GUIDELINES:
-        1. AVOID GENERALIZATIONS: Be highly specific, factual, and straight to the point.
+        1. AVOID GENERALIZATIONS: Provide a practical, conceptual business tip.
         2. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING.
         3. Structure: 
-           - Line 1: Strong technical title with 1 relevant emoji.
-           - Paragraph 1 (3-4 lines): Exact legal rule or tip.
-           - Paragraph 2 (1 short line): Key actionable advice.
+           - Line 1: Strong conceptual title with 1 relevant emoji.
+           - Paragraph 1 (3-4 lines): Conceptual explanation or business principle.
+           - Paragraph 2 (1 short line): Key actionable management advice.
            - Last line: @eyvazicoach
         4. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         5. Length: 60 to 90 words maximum.
@@ -138,16 +137,18 @@ def generate_content():
         After the text, output exactly "---" on a new line.
         
         IMAGE QUERY RULES (CRITICAL):
-        Analyze the Persian text you just wrote. Find the most important keyword.
-        Then, translate that concept into EXACTLY 1 to 3 English words representing a TANGIBLE, PHYSICAL OBJECT for the Pexels API.
-        NEVER use abstract concepts. NEVER use human-related terms. MUST be an inanimate object.
+        To prevent images with foreign currencies or foreign text, output EXACTLY ONE of the following safe keywords for Pexels. DO NOT write anything else:
+        calculator
+        laptop keyboard
+        coffee mug
+        blank notebook
+        office plant
         """
         response = model.generate_content(prompt)
         content = response.text.split("---")
         caption = content[0].strip()
-        image_query = content[1].strip() if len(content) > 1 else "office desk"
+        image_query = content[1].strip() if len(content) > 1 else "calculator"
         
-        # استخراج تیتر نوشته شده و ذخیره آن در تاریخچه
         generated_title = caption.split('\n')[0].replace('<b>', '').replace('</b>', '').strip()
         save_history(generated_title)
         
@@ -164,7 +165,7 @@ def get_pexels_image(query):
             return random_photo["src"]["large"]
     except Exception as e:
         print(f"Pexels Error: {e}")
-    return "https://images.pexels.com/photos/45708/pexels-photo-45708.jpeg"
+    return "https://images.pexels.com/photos/53621/calculator-calculation-insurance-finance-53621.jpeg"
 
 def send_post(caption, image_url=None):
     if image_url:
