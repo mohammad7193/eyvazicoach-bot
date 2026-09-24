@@ -48,8 +48,31 @@ def extract_image_from_entry(entry):
                 return link['href']
     return None
 
+def is_relevant_news(title):
+    # لیست سفید: خبر حتماً باید یکی از این کلمات را داشته باشد تا انتخاب شود
+    allowed_keywords = [
+        'مالیات', 'بیمه', 'حقوق', 'دستمزد', 'کارگر', 'کارفرما', 'قانون کار', 
+        'اصناف', 'کسب', 'چک', 'بانک', 'وام', 'تسهیلات', 'بورس', 'تجارت', 
+        'مودیان', 'یارانه', 'بازنشسته', 'تامین اجتماعی', 'اداره کار', 'مالی', 
+        'تورم', 'بازار', 'اقتصاد', 'قیمت', 'گمرک', 'صادرات'
+    ]
+    # لیست سیاه: اگر خبر این کلمات را داشت، فوراً رد می‌شود
+    forbidden_keywords = [
+        'ترامپ', 'آمریکا', 'اسرائیل', 'غزه', 'جنگ', 'مدرسه', 'مدارس', 'دانش‌آموز',
+        'سیاسی', 'انتخابات', 'قطر', 'ورزش', 'فوتبال', 'سینما', 'قتل', 'حوادث', 'تصادف'
+    ]
+    
+    for bad_word in forbidden_keywords:
+        if bad_word in title:
+            return False
+            
+    for good_word in allowed_keywords:
+        if good_word in title:
+            return True
+            
+    return False
+
 def get_latest_content(history, category="general"):
-    # دسته‌بندی منابع بر اساس درخواست: منابع اصلی برای آموزش، و ترکیب منابع برای اخبار
     if category == "official_rules":
         rss_urls = [
             "https://www.intamedia.ir/rss",  # سازمان امور مالیاتی
@@ -63,14 +86,18 @@ def get_latest_content(history, category="general"):
             "https://shenasname.ir/feed/"
         ]
     
-    random.shuffle(rss_urls) # جلوگیری از خواندن تکراری یک سایت خاص
+    random.shuffle(rss_urls)
     
     for url in rss_urls:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:8]:
+            for entry in feed.entries[:15]:  # جستجوی عمیق‌تر برای پیدا کردن خبر مرتبط
                 title = entry.title
                 if title not in history:
+                    # اعمال فیلتر کلمات کلیدی فقط برای اخبار عمومی
+                    if category == "general" and not is_relevant_news(title):
+                        continue
+                        
                     image_url = extract_image_from_entry(entry)
                     return title, entry.link, image_url
         except Exception:
@@ -94,25 +121,25 @@ def generate_content():
     if post_type == "news":
         news_title, news_link, news_img = get_latest_content(history, "general")
         if not news_title:
-            print("خبر جدیدی یافت نشد. خروج از برنامه.")
+            print("خبر اقتصادی/مالیاتی جدیدی یافت نشد. خروج از برنامه.")
             exit(0) 
             
         save_history(news_title)
         
         prompt = f"""
-        You are an expert Iranian financial and social coach writing for Telegram/Bale in Persian (Farsi).
-        Topic: "خبر جدید: {news_title}"
+        You are an expert Iranian financial and labor coach writing for Telegram/Bale in Persian (Farsi).
+        Topic: "خبر اقتصادی: {news_title}"
         
-        TARGET AUDIENCE: General public, workers, employees, retirees, shopkeepers, and small business owners.
+        TARGET AUDIENCE: Workers, employees, retirees, shopkeepers, and small business owners.
         
         STRICT CONTENT GUIDELINES:
-        1. RELATABILITY: Explain this news simply. How does it affect ordinary people's lives, pockets, or small shops? Avoid heavy corporate jargon.
-        2. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers or deadlines.
-        3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING.
+        1. NO FLUFF: DO NOT write generic advice like "be smart", "manage your expenses", or "wait and see". 
+        2. DIRECT VALUE: Explain EXACTLY what this news means financially. Does it change a deadline? Does it increase a cost? Does it affect a salary? Stick to the concrete facts of the headline.
+        3. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers.
         4. Structure: 
-           - Line 1: Catchy, relatable title with 1 emoji (e.g. 📰, 🛒, 🏢).
-           - Paragraph 1 (3-4 lines): Simple summary of the news.
-           - Paragraph 2 (1 short line): Practical advice or takeaway for the average person/worker.
+           - Line 1: Clear, direct title with 1 emoji.
+           - Paragraph 1 (3-4 lines): Factual explanation of the news.
+           - Paragraph 2 (1 short line): The exact financial/legal consequence for the target audience.
            - Last line: @eyvazicoach
         5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         6. Length: 60 to 90 words maximum.
@@ -122,7 +149,6 @@ def generate_content():
         return post_type, caption, news_img
         
     elif post_type == "edu":
-        # دریافت قانون/بخشنامه جدید از تامین اجتماعی یا امور مالیاتی
         rule_title, rule_link, rule_img = get_latest_content(history, "official_rules")
         if not rule_title:
             print("قانون یا بخشنامه جدیدی یافت نشد. خروج از برنامه.")
@@ -134,16 +160,16 @@ def generate_content():
         You are a friendly Iranian legal/financial coach helping everyday people on Telegram/Bale in Persian (Farsi).
         Official Rule/Circular to explain: "{rule_title}"
         
-        TARGET AUDIENCE: Workers, shopkeepers, employees, retirees, and everyday citizens.
+        TARGET AUDIENCE: Workers, shopkeepers, employees, retirees.
         
         STRICT CONTENT GUIDELINES:
-        1. SIMPLIFY THE LAW: Convert this dry official rule into a simple, practical educational tip. Explain what it means for a worker's rights, a shopkeeper's taxes, or a retiree's pension.
-        2. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages or penalty days.
-        3. NO PROMOTIONS: ABSOLUTELY NO COURSE SELLING.
+        1. SIMPLIFY THE LAW: Convert this official rule into a clear explanation. Explain what it means for a worker's rights, a shopkeeper's taxes, or a retiree's pension.
+        2. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages, deadlines, or penalty days.
+        3. NO FLUFF: Avoid generic platitudes. Provide a concrete translation of the law.
         4. Structure: 
-           - Line 1: Engaging, clear title with 1 emoji (e.g. 💡, ☂️, ⚖️).
+           - Line 1: Engaging, clear title with 1 emoji.
            - Paragraph 1 (3-4 lines): Simple explanation of the rule.
-           - Paragraph 2 (1 short line): Actionable tip for the ordinary citizen or small business.
+           - Paragraph 2 (1 short line): Actionable consequence for the ordinary citizen or small business.
            - Last line: @eyvazicoach
         5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         6. Length: 60 to 90 words maximum.
@@ -163,7 +189,6 @@ def generate_content():
         content = response.text.split("---")
         caption = content[0].strip()
         
-        # اگر خبر اصلی عکس داشته باشد، عکس ایرانی را استفاده می‌کنیم. در غیر این صورت پکسلز با کلمات امن.
         if rule_img:
             image_query = "USE_ORIGINAL_IMAGE"
         else:
@@ -173,7 +198,7 @@ def generate_content():
 
 def get_pexels_image(query):
     if query == "USE_ORIGINAL_IMAGE":
-        return None # نیازی به پکسلز نیست
+        return None 
     try:
         url = f"https://api.pexels.com/v1/search?query={query}&per_page=15"
         headers = {"Authorization": PEXELS_API_KEY}
