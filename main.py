@@ -49,14 +49,12 @@ def extract_image_from_entry(entry):
     return None
 
 def is_relevant_news(title):
-    # لیست سفید: خبر حتماً باید یکی از این کلمات را داشته باشد تا انتخاب شود
     allowed_keywords = [
         'مالیات', 'بیمه', 'حقوق', 'دستمزد', 'کارگر', 'کارفرما', 'قانون کار', 
         'اصناف', 'کسب', 'چک', 'بانک', 'وام', 'تسهیلات', 'بورس', 'تجارت', 
         'مودیان', 'یارانه', 'بازنشسته', 'تامین اجتماعی', 'اداره کار', 'مالی', 
         'تورم', 'بازار', 'اقتصاد', 'قیمت', 'گمرک', 'صادرات'
     ]
-    # لیست سیاه: اگر خبر این کلمات را داشت، فوراً رد می‌شود
     forbidden_keywords = [
         'ترامپ', 'آمریکا', 'اسرائیل', 'غزه', 'جنگ', 'مدرسه', 'مدارس', 'دانش‌آموز',
         'سیاسی', 'انتخابات', 'قطر', 'ورزش', 'فوتبال', 'سینما', 'قتل', 'حوادث', 'تصادف'
@@ -75,8 +73,8 @@ def is_relevant_news(title):
 def get_latest_content(history, category="general"):
     if category == "official_rules":
         rss_urls = [
-            "https://www.intamedia.ir/rss",  # سازمان امور مالیاتی
-            "https://news.tamin.ir/rss"      # سازمان تامین اجتماعی
+            "https://www.intamedia.ir/rss",
+            "https://news.tamin.ir/rss"
         ]
     else:
         rss_urls = [
@@ -91,10 +89,9 @@ def get_latest_content(history, category="general"):
     for url in rss_urls:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:15]:  # جستجوی عمیق‌تر برای پیدا کردن خبر مرتبط
+            for entry in feed.entries[:15]:
                 title = entry.title
                 if title not in history:
-                    # اعمال فیلتر کلمات کلیدی فقط برای اخبار عمومی
                     if category == "general" and not is_relevant_news(title):
                         continue
                         
@@ -127,22 +124,19 @@ def generate_content():
         save_history(news_title)
         
         prompt = f"""
-        You are an expert Iranian financial and labor coach writing for Telegram/Bale in Persian (Farsi).
-        Topic: "خبر اقتصادی: {news_title}"
-        
-        TARGET AUDIENCE: Workers, employees, retirees, shopkeepers, and small business owners.
+        You are a professional and eloquent Iranian financial journalist writing for Telegram/Bale in Persian (Farsi).
+        Topic: "خبر: {news_title}"
         
         STRICT CONTENT GUIDELINES:
-        1. NO FLUFF: DO NOT write generic advice like "be smart", "manage your expenses", or "wait and see". 
-        2. DIRECT VALUE: Explain EXACTLY what this news means financially. Does it change a deadline? Does it increase a cost? Does it affect a salary? Stick to the concrete facts of the headline.
-        3. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers.
-        4. Structure: 
-           - Line 1: Clear, direct title with 1 emoji.
-           - Paragraph 1 (3-4 lines): Factual explanation of the news.
-           - Paragraph 2 (1 short line): The exact financial/legal consequence for the target audience.
+        1. TONE & STYLE: Write beautifully, naturally, and smoothly. DO NOT act like a preacher or advisor. NEVER use forced labels like "پیامد:" (Consequence) or "راهکار:" (Solution). Just report the news and its context fluidly.
+        2. RESPECTFUL & DIGNIFIED: Maintain a highly professional, dignified tone. DO NOT use exaggerated portrayals of poverty, distress, or misery when discussing economic news.
+        3. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers or facts.
+        4. CONCISENESS: Keep the caption brief and punchy. Avoid verbose explanations. (Max 60-70 words).
+        5. Structure: 
+           - Line 1: Catchy, natural title with 1 relevant emoji.
+           - Body: 1 or 2 cohesive paragraphs seamlessly delivering the news.
            - Last line: @eyvazicoach
-        5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
-        6. Length: 60 to 90 words maximum.
+        6. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         """
         response = model.generate_content(prompt)
         caption = response.text.strip()
@@ -157,22 +151,19 @@ def generate_content():
         save_history(rule_title)
         
         prompt = f"""
-        You are a friendly Iranian legal/financial coach helping everyday people on Telegram/Bale in Persian (Farsi).
+        You are a professional Iranian legal/financial analyst writing for Telegram/Bale in Persian (Farsi).
         Official Rule/Circular to explain: "{rule_title}"
         
-        TARGET AUDIENCE: Workers, shopkeepers, employees, retirees.
-        
         STRICT CONTENT GUIDELINES:
-        1. SIMPLIFY THE LAW: Convert this official rule into a clear explanation. Explain what it means for a worker's rights, a shopkeeper's taxes, or a retiree's pension.
-        2. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages, deadlines, or penalty days.
-        3. NO FLUFF: Avoid generic platitudes. Provide a concrete translation of the law.
-        4. Structure: 
+        1. TONE & STYLE: Write beautifully, clearly, and naturally. DO NOT use forced labels like "راهکار:" (Advice) or "نتیجه:" (Result). Blend the explanation smoothly.
+        2. RESPECTFUL & DIGNIFIED: Keep the tone dignified and professional. Avoid overly dramatic or distressing language about the economy or businesses.
+        3. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages, deadlines, or penalty days.
+        4. CONCISENESS: Keep it brief and concise. Avoid lengthy or verbose sentences. (Max 60-70 words).
+        5. Structure: 
            - Line 1: Engaging, clear title with 1 emoji.
-           - Paragraph 1 (3-4 lines): Simple explanation of the rule.
-           - Paragraph 2 (1 short line): Actionable consequence for the ordinary citizen or small business.
+           - Body: 1 or 2 cohesive paragraphs explaining the rule simply.
            - Last line: @eyvazicoach
-        5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
-        6. Length: 60 to 90 words maximum.
+        6. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         
         After the text, output exactly "---" on a new line.
         
