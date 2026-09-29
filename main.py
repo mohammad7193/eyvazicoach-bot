@@ -4,6 +4,7 @@ import datetime
 import pytz
 import random
 import feedparser
+import re
 import google.generativeai as genai
 
 # دریافت ایمن متغیرهای محیطی
@@ -49,58 +50,98 @@ def extract_image_from_entry(entry):
     return None
 
 def is_relevant_news(title):
-    allowed_keywords = [
-        'مالیات', 'بیمه', 'حقوق', 'دستمزد', 'کارگر', 'کارفرما', 'قانون کار', 
-        'اصناف', 'کسب', 'چک', 'بانک', 'وام', 'تسهیلات', 'بورس', 'تجارت', 
-        'مودیان', 'یارانه', 'بازنشسته', 'تامین اجتماعی', 'اداره کار', 'مالی', 
-        'تورم', 'بازار', 'اقتصاد', 'قیمت', 'گمرک', 'صادرات'
-    ]
+    # لیست سیاه قطعی: اخبار زرد و بی‌ربطی که مخاطب را فراری می‌دهد
     forbidden_keywords = [
-        'ترامپ', 'آمریکا', 'اسرائیل', 'غزه', 'جنگ', 'مدرسه', 'مدارس', 'دانش‌آموز',
-        'سیاسی', 'انتخابات', 'قطر', 'ورزش', 'فوتبال', 'سینما', 'قتل', 'حوادث', 'تصادف'
+        'طلا', 'سکه', 'دلار', 'ارز', 'گوشت', 'مرغ', 'ترافیک', 'جاده', 'آب و هوا',
+        'مدارس', 'تعطیلی', 'گازوئیل', 'بنزین', 'نفت', 'عراق', 'انگلیس', 'آمریکا',
+        'ترامپ', 'جنگ', 'اسرائیل', 'غزه', 'قتل', 'تصادف', 'حوادث', 'ورزش', 
+        'فوتبال', 'سینما', 'بازیگر', 'خودرو', 'بورس', 'دیوان عدالت', 'سکو'
     ]
     
-    for bad_word in forbidden_keywords:
-        if bad_word in title:
+    # لیست سفید: کلماتی که تایید می‌کنند خبر کاملا تخصصی و بدردبخور است
+    allowed_keywords = [
+        'مالیات', 'بیمه', 'حقوق', 'دستمزد', 'کارگر', 'کارفرما', 'قانون کار', 
+        'اصناف', 'کسب و کار', 'چک', 'بانک', 'وام', 'تسهیلات', 'تجارت', 
+        'مودیان', 'بازنشسته', 'تامین اجتماعی', 'اداره کار', 'اظهارنامه',
+        'بخشنامه', 'حسابداری', 'استخدام', 'یارانه', 'اقتصاد', 'مالی'
+    ]
+    
+    for bad in forbidden_keywords:
+        if bad in title:
             return False
             
-    for good_word in allowed_keywords:
-        if good_word in title:
+    for good in allowed_keywords:
+        if good in title:
             return True
             
     return False
 
 def get_latest_content(history, category="general"):
     if category == "official_rules":
+        # منابع پست‌های آموزشی: فقط منابع صد در صد رسمی
         rss_urls = [
             "https://www.intamedia.ir/rss",
             "https://news.tamin.ir/rss"
         ]
+        random.shuffle(rss_urls)
+        for url in rss_urls:
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:10]:
+                    title = entry.title
+                    if title not in history:
+                        image_url = extract_image_from_entry(entry)
+                        return title, entry.link, image_url
+            except Exception:
+                continue 
+        return None, None, None
     else:
-        rss_urls = [
-            "https://www.intamedia.ir/rss",
-            "https://news.tamin.ir/rss",
-            "https://tejaratnews.com/feed/",
-            "https://shenasname.ir/feed/"
+        # منابع پست‌های خبری: فقط لینک‌های درخواستی کاربر با استفاده از Web Scraping
+        sources = [
+            ("https://www.mehrnews.com/tag/%D8%B3%D8%A7%D8%B2%D9%85%D8%A7%D9%86+%D8%A7%D9%85%D9%88%D8%B1+%D9%85%D8%A7%D9%84%DB%8C%D8%A7%D8%AA%DB%8C", "mehr"),
+            ("https://www.khabarfoori.com/%D8%A8%D8%AE%D8%B4-%D8%A7%D9%82%D8%AA%D8%B5%D8%A7%D8%AF%DB%8C-145", "khabarfoori")
         ]
-    
-    random.shuffle(rss_urls)
-    
-    for url in rss_urls:
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:15]:
-                title = entry.title
-                if title not in history:
-                    if category == "general" and not is_relevant_news(title):
+        random.shuffle(sources)
+        
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        
+        for url, source_name in sources:
+            try:
+                resp = requests.get(url, headers=headers, timeout=15)
+                html = resp.text
+                
+                news_list = []
+                # استخراج لینک‌ها از سورس HTML سایت‌ها
+                if source_name == "mehr":
+                    matches = re.findall(r'<a href="(/news/\d+/[^"]+)"[^>]*>(.*?)</a>', html)
+                    for link, title in matches:
+                        title = re.sub(r'<[^>]+>', '', title).strip()
+                        if len(title) > 20:
+                            news_list.append((title, "https://www.mehrnews.com" + link))
+                            
+                elif source_name == "khabarfoori":
+                    matches = re.findall(r'<a href="([^"]+)"[^>]*>(.*?)</a>', html)
+                    for link, title in matches:
+                        title = re.sub(r'<[^>]+>', '', title).strip()
+                        if len(title) > 20 and ('/بخش-' in link or '/fa/tiny/' in link or '/detail/' in link):
+                            if not link.startswith("http"):
+                                link = "https://www.khabarfoori.com" + link
+                            news_list.append((title, link))
+                
+                # فیلترینگ شدید برای جلوگیری از اخبار زرد
+                for title, link in news_list:
+                    if not is_relevant_news(title):
                         continue
                         
-                    image_url = extract_image_from_entry(entry)
-                    return title, entry.link, image_url
-        except Exception:
-            continue 
-            
-    return None, None, None
+                    if title not in history:
+                        # چون اسکرپ کردیم، عکس خبر استخراج نمی‌شود، تا پکسلز عکس خنثی بدهد
+                        return title, link, None 
+                        
+            except Exception as e:
+                print(f"Scraping error: {e}")
+                continue
+                
+        return None, None, None
 
 def determine_post_type():
     iran_tz = pytz.timezone('Asia/Tehran')
@@ -128,8 +169,8 @@ def generate_content():
         Topic: "خبر: {news_title}"
         
         STRICT CONTENT GUIDELINES:
-        1. TONE & STYLE: Write beautifully, naturally, and smoothly. DO NOT act like a preacher or advisor. NEVER use forced labels like "پیامد:" (Consequence) or "راهکار:" (Solution). Just report the news and its context fluidly.
-        2. RESPECTFUL & DIGNIFIED: Maintain a highly professional, dignified tone. DO NOT use exaggerated portrayals of poverty, distress, or misery when discussing economic news.
+        1. TONE & STYLE: Write beautifully, naturally, and smoothly. DO NOT act like a preacher or advisor. NEVER use forced labels like "پیامد:" or "راهکار:". Just report the news and its context fluidly.
+        2. RESPECTFUL & DIGNIFIED: Maintain a highly professional, dignified tone.
         3. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers or facts.
         4. CONCISENESS: Keep the caption brief and punchy. Avoid verbose explanations. (Max 60-70 words).
         5. Structure: 
@@ -137,10 +178,24 @@ def generate_content():
            - Body: 1 or 2 cohesive paragraphs seamlessly delivering the news.
            - Last line: @eyvazicoach
         6. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
+        
+        After the text, output exactly "---" on a new line.
+        
+        IMAGE QUERY RULES:
+        We need a visually neutral image that does NOT show foreign text, foreign money, or non-Iranian documents.
+        Output EXACTLY ONE of the following safe keywords for Pexels. DO NOT write anything else:
+        tea cup desk
+        blank notebook pen
+        simple calculator
+        office plant
+        empty meeting room
         """
         response = model.generate_content(prompt)
-        caption = response.text.strip()
-        return post_type, caption, news_img
+        content = response.text.split("---")
+        caption = content[0].strip()
+        image_query = content[1].strip() if len(content) > 1 else "simple calculator"
+        
+        return post_type, caption, image_query
         
     elif post_type == "edu":
         rule_title, rule_link, rule_img = get_latest_content(history, "official_rules")
@@ -156,7 +211,7 @@ def generate_content():
         
         STRICT CONTENT GUIDELINES:
         1. TONE & STYLE: Write beautifully, clearly, and naturally. DO NOT use forced labels like "راهکار:" (Advice) or "نتیجه:" (Result). Blend the explanation smoothly.
-        2. RESPECTFUL & DIGNIFIED: Keep the tone dignified and professional. Avoid overly dramatic or distressing language about the economy or businesses.
+        2. RESPECTFUL & DIGNIFIED: Keep the tone dignified and professional. 
         3. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages, deadlines, or penalty days.
         4. CONCISENESS: Keep it brief and concise. Avoid lengthy or verbose sentences. (Max 60-70 words).
         5. Structure: 
@@ -244,8 +299,9 @@ if __name__ == "__main__":
     post_type, caption, resource = generate_content()
     
     if post_type == "news":
-        print(f"اجرای پست خبری. عکس همراه خبر: {resource}")
-        send_post(caption, image_url=resource)
+        print(f"اجرای پست خبری. جستجوی پکسلز با کلمه خنثی: {resource}")
+        image_url = get_pexels_image(resource)
+        send_post(caption, image_url=image_url)
     else:
         if resource and resource.startswith("http"):
             print(f"اجرای پست آموزشی. استفاده از عکس رسمی سایت.")
