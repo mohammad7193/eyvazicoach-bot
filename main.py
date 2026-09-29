@@ -50,13 +50,26 @@ def extract_image_from_entry(entry):
     return None
 
 def get_og_image(url):
-    # استخراج دقیق عکس اصلی خبر از داخل صفحه سایت
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        resp = requests.get(url, headers=headers, timeout=10)
-        match = re.search(r'<meta property="og:image" content="([^"]+)"', resp.text)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        resp = requests.get(url, headers=headers, timeout=15)
+        
+        # جستجوی حالت‌های مختلف قرارگیری عکس در سایت‌های خبری
+        match = re.search(r'property=[\'"]og:image[\'"]\s+content=[\'"]([^\'"]+)[\'"]', resp.text, re.IGNORECASE)
+        if not match:
+            match = re.search(r'content=[\'"]([^\'"]+)[\'"]\s+property=[\'"]og:image[\'"]', resp.text, re.IGNORECASE)
+        if not match:
+            match = re.search(r'<img[^>]+src=[\'"]([^\'"]+)[\'"][^>]+itemprop=[\'"]image[\'"]', resp.text, re.IGNORECASE)
+            
         if match:
-            return match.group(1)
+            img_url = match.group(1)
+            # اصلاح لینک‌های نسبی در سایت‌ها
+            if not img_url.startswith("http"):
+                if "mehrnews" in url:
+                    img_url = "https://www.mehrnews.com" + img_url
+                elif "khabarfoori" in url:
+                    img_url = "https://www.khabarfoori.com" + img_url
+            return img_url
     except Exception as e:
         print(f"OG Image Error: {e}")
     return None
@@ -68,22 +81,18 @@ def is_relevant_news(title):
         'ترامپ', 'جنگ', 'اسرائیل', 'غزه', 'قتل', 'تصادف', 'حوادث', 'ورزش', 
         'فوتبال', 'سینما', 'بازیگر', 'خودرو', 'بورس', 'دیوان عدالت', 'سکو'
     ]
-    
     allowed_keywords = [
         'مالیات', 'بیمه', 'حقوق', 'دستمزد', 'کارگر', 'کارفرما', 'قانون کار', 
         'اصناف', 'کسب و کار', 'چک', 'بانک', 'وام', 'تسهیلات', 'تجارت', 
         'مودیان', 'بازنشسته', 'تامین اجتماعی', 'اداره کار', 'اظهارنامه',
         'بخشنامه', 'حسابداری', 'استخدام', 'یارانه', 'اقتصاد', 'مالی'
     ]
-    
     for bad in forbidden_keywords:
         if bad in title:
             return False
-            
     for good in allowed_keywords:
         if good in title:
             return True
-            
     return False
 
 def get_latest_content(history, category="general"):
@@ -100,6 +109,8 @@ def get_latest_content(history, category="general"):
                     title = entry.title
                     if title not in history:
                         image_url = extract_image_from_entry(entry)
+                        if not image_url:
+                            image_url = get_og_image(entry.link)
                         return title, entry.link, image_url
             except Exception:
                 continue 
@@ -110,14 +121,11 @@ def get_latest_content(history, category="general"):
             ("https://www.khabarfoori.com/%D8%A8%D8%AE%D8%B4-%D8%A7%D9%82%D8%AA%D8%B5%D8%A7%D8%AF%DB%8C-145", "khabarfoori")
         ]
         random.shuffle(sources)
-        
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        
         for url, source_name in sources:
             try:
                 resp = requests.get(url, headers=headers, timeout=15)
                 html = resp.text
-                
                 news_list = []
                 if source_name == "mehr":
                     matches = re.findall(r'<a href="(/news/\d+/[^"]+)"[^>]*>(.*?)</a>', html)
@@ -125,7 +133,6 @@ def get_latest_content(history, category="general"):
                         title = re.sub(r'<[^>]+>', '', title).strip()
                         if len(title) > 20:
                             news_list.append((title, "https://www.mehrnews.com" + link))
-                            
                 elif source_name == "khabarfoori":
                     matches = re.findall(r'<a href="([^"]+)"[^>]*>(.*?)</a>', html)
                     for link, title in matches:
@@ -138,16 +145,12 @@ def get_latest_content(history, category="general"):
                 for title, link in news_list:
                     if not is_relevant_news(title):
                         continue
-                        
                     if title not in history:
-                        # ورود به لینک خبر و دریافت عکس اصلی
                         image_url = get_og_image(link)
                         return title, link, image_url
-                        
             except Exception as e:
                 print(f"Scraping error: {e}")
                 continue
-                
         return None, None, None
 
 def determine_post_type():
@@ -171,42 +174,27 @@ def generate_content():
             
         save_history(news_title)
         
+        # در بخش اخبار، درخواست کلمه کلیدی پکسلز کلاً حذف شد
         prompt = f"""
         You are a professional and eloquent Iranian financial journalist writing for Telegram/Bale in Persian (Farsi).
         Topic: "خبر: {news_title}"
         
         STRICT CONTENT GUIDELINES:
-        1. TONE & STYLE: Write beautifully, naturally, and smoothly. DO NOT act like a preacher or advisor. NEVER use forced labels like "پیامد:" or "راهکار:". Just report the news and its context fluidly.
+        1. TONE & STYLE: Write beautifully, naturally, and smoothly. DO NOT act like a preacher or advisor. NEVER use forced labels. Just report the news and its context fluidly.
         2. RESPECTFUL & DIGNIFIED: Maintain a highly professional, dignified tone.
         3. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers or facts.
-        4. CONCISENESS: Keep the caption brief and punchy. Avoid verbose explanations. (Max 60-70 words).
+        4. CONCISENESS: Keep the caption brief and punchy. (Max 60-70 words).
         5. Structure: 
            - Line 1: Catchy, natural title with 1 relevant emoji.
            - Body: 1 or 2 cohesive paragraphs seamlessly delivering the news.
            - Last line: @eyvazicoach
         6. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
-        
-        After the text, output exactly "---" on a new line.
-        
-        IMAGE QUERY RULES:
-        We need a visually neutral image that does NOT show foreign text, foreign money, or non-Iranian documents.
-        Output EXACTLY ONE of the following safe keywords for Pexels. DO NOT write anything else:
-        tea cup desk
-        blank notebook pen
-        simple calculator
-        office plant
-        empty meeting room
         """
         response = model.generate_content(prompt)
-        content = response.text.split("---")
-        caption = content[0].strip()
+        caption = response.text.strip()
         
-        # اولویت با عکس اصلی خبر است
-        if news_img:
-            resource = news_img
-        else:
-            resource = content[1].strip() if len(content) > 1 else "simple calculator"
-            
+        # اگر خبر عکس داشته باشد، عکس را برمی‌گرداند. در غیر این صورت پرچم TEXT_ONLY می‌فرستد.
+        resource = news_img if news_img else "TEXT_ONLY"
         return post_type, caption, resource
         
     elif post_type == "edu":
@@ -222,10 +210,10 @@ def generate_content():
         Official Rule/Circular to explain: "{rule_title}"
         
         STRICT CONTENT GUIDELINES:
-        1. TONE & STYLE: Write beautifully, clearly, and naturally. DO NOT use forced labels like "راهکار:" (Advice) or "نتیجه:" (Result). Blend the explanation smoothly.
+        1. TONE & STYLE: Write beautifully, clearly, and naturally. DO NOT use forced labels. Blend the explanation smoothly.
         2. RESPECTFUL & DIGNIFIED: Keep the tone dignified and professional. 
-        3. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages, deadlines, or penalty days.
-        4. CONCISENESS: Keep it brief and concise. Avoid lengthy or verbose sentences. (Max 60-70 words).
+        3. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages or deadlines.
+        4. CONCISENESS: Keep it brief and concise. (Max 60-70 words).
         5. Structure: 
            - Line 1: Engaging, clear title with 1 emoji.
            - Body: 1 or 2 cohesive paragraphs explaining the rule simply.
@@ -235,23 +223,21 @@ def generate_content():
         After the text, output exactly "---" on a new line.
         
         IMAGE QUERY RULES (CRITICAL):
-        We need a visually neutral image that does NOT show foreign text, foreign money, or non-Iranian documents.
+        We need a visually neutral image. ABSOLUTELY NO MONEY, NO COINS, NO CALCULATORS, NO CURRENCY.
         Output EXACTLY ONE of the following safe keywords for Pexels. DO NOT write anything else:
-        tea cup desk
-        blank notebook pen
-        simple calculator
-        office plant
-        empty meeting room
+        cup of black tea on desk
+        blank open notebook
+        minimalist office plant
+        white computer keyboard
         """
         response = model.generate_content(prompt)
         content = response.text.split("---")
         caption = content[0].strip()
         
-        # اولویت با عکس اصلی خبر است
         if rule_img:
             resource = rule_img
         else:
-            resource = content[1].strip() if len(content) > 1 else "simple calculator"
+            resource = content[1].strip() if len(content) > 1 else "blank open notebook"
             
         return post_type, caption, resource
 
@@ -266,7 +252,7 @@ def get_pexels_image(query):
             return random_photo["src"]["large"]
     except Exception as e:
         print(f"Pexels Error: {e}")
-    return "https://images.pexels.com/photos/53621/calculator-calculation-insurance-finance-53621.jpeg"
+    return "https://images.pexels.com/photos/317355/pexels-photo-317355.jpeg"
 
 def send_post(caption, image_url=None):
     if image_url:
@@ -309,10 +295,13 @@ def send_post(caption, image_url=None):
 if __name__ == "__main__":
     post_type, caption, resource = generate_content()
     
-    if resource and resource.startswith("http"):
-        print(f"اجرای پست. استفاده از عکس رسمی سایت.")
+    if resource == "TEXT_ONLY":
+        print("اجرای پست. خبر فاقد عکس است، ارسال به صورت متن خالی انجام می‌شود.")
+        send_post(caption, image_url=None)
+    elif resource and resource.startswith("http"):
+        print(f"اجرای پست. استفاده از عکس رسمی سایت: {resource}")
         send_post(caption, image_url=resource)
     else:
-        print(f"اجرای پست. جستجوی پکسلز با کلمه خنثی: {resource}") 
+        print(f"اجرای پست آموزشی. جستجوی پکسلز با کلمه خنثی: {resource}") 
         image_url = get_pexels_image(resource)
         send_post(caption, image_url=image_url)
