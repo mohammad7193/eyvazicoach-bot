@@ -49,8 +49,19 @@ def extract_image_from_entry(entry):
                 return link['href']
     return None
 
+def get_og_image(url):
+    # استخراج دقیق عکس اصلی خبر از داخل صفحه سایت
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        resp = requests.get(url, headers=headers, timeout=10)
+        match = re.search(r'<meta property="og:image" content="([^"]+)"', resp.text)
+        if match:
+            return match.group(1)
+    except Exception as e:
+        print(f"OG Image Error: {e}")
+    return None
+
 def is_relevant_news(title):
-    # لیست سیاه قطعی: اخبار زرد و بی‌ربطی که مخاطب را فراری می‌دهد
     forbidden_keywords = [
         'طلا', 'سکه', 'دلار', 'ارز', 'گوشت', 'مرغ', 'ترافیک', 'جاده', 'آب و هوا',
         'مدارس', 'تعطیلی', 'گازوئیل', 'بنزین', 'نفت', 'عراق', 'انگلیس', 'آمریکا',
@@ -58,7 +69,6 @@ def is_relevant_news(title):
         'فوتبال', 'سینما', 'بازیگر', 'خودرو', 'بورس', 'دیوان عدالت', 'سکو'
     ]
     
-    # لیست سفید: کلماتی که تایید می‌کنند خبر کاملا تخصصی و بدردبخور است
     allowed_keywords = [
         'مالیات', 'بیمه', 'حقوق', 'دستمزد', 'کارگر', 'کارفرما', 'قانون کار', 
         'اصناف', 'کسب و کار', 'چک', 'بانک', 'وام', 'تسهیلات', 'تجارت', 
@@ -78,7 +88,6 @@ def is_relevant_news(title):
 
 def get_latest_content(history, category="general"):
     if category == "official_rules":
-        # منابع پست‌های آموزشی: فقط منابع صد در صد رسمی
         rss_urls = [
             "https://www.intamedia.ir/rss",
             "https://news.tamin.ir/rss"
@@ -96,7 +105,6 @@ def get_latest_content(history, category="general"):
                 continue 
         return None, None, None
     else:
-        # منابع پست‌های خبری: فقط لینک‌های درخواستی کاربر با استفاده از Web Scraping
         sources = [
             ("https://www.mehrnews.com/tag/%D8%B3%D8%A7%D8%B2%D9%85%D8%A7%D9%86+%D8%A7%D9%85%D9%88%D8%B1+%D9%85%D8%A7%D9%84%DB%8C%D8%A7%D8%AA%DB%8C", "mehr"),
             ("https://www.khabarfoori.com/%D8%A8%D8%AE%D8%B4-%D8%A7%D9%82%D8%AA%D8%B5%D8%A7%D8%AF%DB%8C-145", "khabarfoori")
@@ -111,7 +119,6 @@ def get_latest_content(history, category="general"):
                 html = resp.text
                 
                 news_list = []
-                # استخراج لینک‌ها از سورس HTML سایت‌ها
                 if source_name == "mehr":
                     matches = re.findall(r'<a href="(/news/\d+/[^"]+)"[^>]*>(.*?)</a>', html)
                     for link, title in matches:
@@ -128,14 +135,14 @@ def get_latest_content(history, category="general"):
                                 link = "https://www.khabarfoori.com" + link
                             news_list.append((title, link))
                 
-                # فیلترینگ شدید برای جلوگیری از اخبار زرد
                 for title, link in news_list:
                     if not is_relevant_news(title):
                         continue
                         
                     if title not in history:
-                        # چون اسکرپ کردیم، عکس خبر استخراج نمی‌شود، تا پکسلز عکس خنثی بدهد
-                        return title, link, None 
+                        # ورود به لینک خبر و دریافت عکس اصلی
+                        image_url = get_og_image(link)
+                        return title, link, image_url
                         
             except Exception as e:
                 print(f"Scraping error: {e}")
@@ -193,9 +200,14 @@ def generate_content():
         response = model.generate_content(prompt)
         content = response.text.split("---")
         caption = content[0].strip()
-        image_query = content[1].strip() if len(content) > 1 else "simple calculator"
         
-        return post_type, caption, image_query
+        # اولویت با عکس اصلی خبر است
+        if news_img:
+            resource = news_img
+        else:
+            resource = content[1].strip() if len(content) > 1 else "simple calculator"
+            
+        return post_type, caption, resource
         
     elif post_type == "edu":
         rule_title, rule_link, rule_img = get_latest_content(history, "official_rules")
@@ -235,16 +247,15 @@ def generate_content():
         content = response.text.split("---")
         caption = content[0].strip()
         
+        # اولویت با عکس اصلی خبر است
         if rule_img:
-            image_query = "USE_ORIGINAL_IMAGE"
+            resource = rule_img
         else:
-            image_query = content[1].strip() if len(content) > 1 else "simple calculator"
+            resource = content[1].strip() if len(content) > 1 else "simple calculator"
             
-        return post_type, caption, rule_img if rule_img else image_query
+        return post_type, caption, resource
 
 def get_pexels_image(query):
-    if query == "USE_ORIGINAL_IMAGE":
-        return None 
     try:
         url = f"https://api.pexels.com/v1/search?query={query}&per_page=15"
         headers = {"Authorization": PEXELS_API_KEY}
@@ -298,15 +309,10 @@ def send_post(caption, image_url=None):
 if __name__ == "__main__":
     post_type, caption, resource = generate_content()
     
-    if post_type == "news":
-        print(f"اجرای پست خبری. جستجوی پکسلز با کلمه خنثی: {resource}")
+    if resource and resource.startswith("http"):
+        print(f"اجرای پست. استفاده از عکس رسمی سایت.")
+        send_post(caption, image_url=resource)
+    else:
+        print(f"اجرای پست. جستجوی پکسلز با کلمه خنثی: {resource}") 
         image_url = get_pexels_image(resource)
         send_post(caption, image_url=image_url)
-    else:
-        if resource and resource.startswith("http"):
-            print(f"اجرای پست آموزشی. استفاده از عکس رسمی سایت.")
-            send_post(caption, image_url=resource)
-        else:
-            print(f"اجرای پست آموزشی. جستجوی پکسلز با کلمه خنثی: {resource}") 
-            image_url = get_pexels_image(resource)
-            send_post(caption, image_url=image_url)
