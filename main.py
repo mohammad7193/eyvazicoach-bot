@@ -54,7 +54,6 @@ def get_og_image(url):
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         resp = requests.get(url, headers=headers, timeout=15)
         
-        # جستجوی حالت‌های مختلف قرارگیری عکس در سایت‌های خبری
         match = re.search(r'property=[\'"]og:image[\'"]\s+content=[\'"]([^\'"]+)[\'"]', resp.text, re.IGNORECASE)
         if not match:
             match = re.search(r'content=[\'"]([^\'"]+)[\'"]\s+property=[\'"]og:image[\'"]', resp.text, re.IGNORECASE)
@@ -63,7 +62,6 @@ def get_og_image(url):
             
         if match:
             img_url = match.group(1)
-            # اصلاح لینک‌های نسبی در سایت‌ها
             if not img_url.startswith("http"):
                 if "mehrnews" in url:
                     img_url = "https://www.mehrnews.com" + img_url
@@ -97,10 +95,7 @@ def is_relevant_news(title):
 
 def get_latest_content(history, category="general"):
     if category == "official_rules":
-        rss_urls = [
-            "https://www.intamedia.ir/rss",
-            "https://news.tamin.ir/rss"
-        ]
+        rss_urls = ["https://www.intamedia.ir/rss", "https://news.tamin.ir/rss"]
         random.shuffle(rss_urls)
         for url in rss_urls:
             try:
@@ -153,28 +148,16 @@ def get_latest_content(history, category="general"):
                 continue
         return None, None, None
 
-def determine_post_type():
-    iran_tz = pytz.timezone('Asia/Tehran')
-    hour = datetime.datetime.now(iran_tz).hour
-    
-    if hour in [9, 10, 11, 15, 16, 17]:
-        return "edu"
-    else:
-        return "news"
-
-def generate_content():
+def generate_content(post_type):
     history = load_history()
-    post_type = determine_post_type()
     
     if post_type == "news":
         news_title, news_link, news_img = get_latest_content(history, "general")
         if not news_title:
-            print("خبر اقتصادی/مالیاتی جدیدی یافت نشد. خروج از برنامه.")
-            exit(0) 
+            return None, None
             
         save_history(news_title)
         
-        # در بخش اخبار، درخواست کلمه کلیدی پکسلز کلاً حذف شد
         prompt = f"""
         You are a professional and eloquent Iranian financial journalist writing for Telegram/Bale in Persian (Farsi).
         Topic: "خبر: {news_title}"
@@ -192,16 +175,13 @@ def generate_content():
         """
         response = model.generate_content(prompt)
         caption = response.text.strip()
-        
-        # اگر خبر عکس داشته باشد، عکس را برمی‌گرداند. در غیر این صورت پرچم TEXT_ONLY می‌فرستد.
         resource = news_img if news_img else "TEXT_ONLY"
-        return post_type, caption, resource
+        return caption, resource
         
     elif post_type == "edu":
         rule_title, rule_link, rule_img = get_latest_content(history, "official_rules")
         if not rule_title:
-            print("قانون یا بخشنامه جدیدی یافت نشد. خروج از برنامه.")
-            exit(0)
+            return None, None
             
         save_history(rule_title)
         
@@ -239,7 +219,7 @@ def generate_content():
         else:
             resource = content[1].strip() if len(content) > 1 else "blank open notebook"
             
-        return post_type, caption, resource
+        return caption, resource
 
 def get_pexels_image(query):
     try:
@@ -254,54 +234,95 @@ def get_pexels_image(query):
         print(f"Pexels Error: {e}")
     return "https://images.pexels.com/photos/317355/pexels-photo-317355.jpeg"
 
-def send_post(caption, image_url=None):
+def send_post(caption, image_url=None, schedule_date=None):
+    tg_payload = {"chat_id": TELEGRAM_CHAT, "parse_mode": "HTML"}
+    bale_payload = {"chat_id": BALE_CHAT}
+    
+    if schedule_date:
+        tg_payload["schedule_date"] = schedule_date
+        bale_payload["schedule_date"] = schedule_date
+
     if image_url:
         try:
             img_response = requests.get(image_url, timeout=15)
             img_data = img_response.content
-            tg_payload = {"chat_id": TELEGRAM_CHAT, "caption": caption, "parse_mode": "HTML"}
+            tg_payload["caption"] = caption
             tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
             res_tg = requests.post(tg_url, data=tg_payload, files={"photo": ("image.jpg", img_data, "image/jpeg")})
             print(f"Telegram Photo Status: {res_tg.status_code}")
         except Exception as e:
             print(f"Telegram Photo Error: {e}")
-    else:
+            
         try:
-            tg_payload = {"chat_id": TELEGRAM_CHAT, "text": caption, "parse_mode": "HTML"}
-            tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            res_tg = requests.post(tg_url, data=tg_payload)
-            print(f"Telegram Text Status: {res_tg.status_code}")
-        except Exception as e:
-            print(f"Telegram Text Error: {e}")
-
-    bale_caption = caption.replace('<b>', '').replace('</b>', '')
-    if image_url:
-        try:
-            bale_payload = {"chat_id": BALE_CHAT, "photo": image_url, "caption": bale_caption}
+            bale_caption = caption.replace('<b>', '').replace('</b>', '')
+            bale_payload["caption"] = bale_caption
+            bale_payload["photo"] = image_url
             bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
             res_bale = requests.post(bale_url, data=bale_payload, timeout=20)
             print(f"Bale Photo Status: {res_bale.status_code}")
         except Exception as e:
             print(f"Bale Photo Error: {e}")
+            
     else:
         try:
-            bale_payload = {"chat_id": BALE_CHAT, "text": bale_caption}
+            tg_payload["text"] = caption
+            tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            res_tg = requests.post(tg_url, data=tg_payload)
+            print(f"Telegram Text Status: {res_tg.status_code}")
+        except Exception as e:
+            print(f"Telegram Text Error: {e}")
+            
+        try:
+            bale_caption = caption.replace('<b>', '').replace('</b>', '')
+            bale_payload["text"] = bale_caption
             bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
             res_bale = requests.post(bale_url, data=bale_payload, timeout=20)
             print(f"Bale Text Status: {res_bale.status_code}")
         except Exception as e:
             print(f"Bale Text Error: {e}")
 
-if __name__ == "__main__":
-    post_type, caption, resource = generate_content()
+def get_next_target():
+    # پیدا کردن نزدیک‌ترین ساعت هدف به زمان فعلی (برای رزرو دقیق پست)
+    iran_tz = pytz.timezone('Asia/Tehran')
+    now = datetime.datetime.now(iran_tz)
     
+    schedule = [
+        (10, "edu"),
+        (13, "news"),
+        (16, "edu"),
+        (19, "news")
+    ]
+    
+    for target_hour, p_type in schedule:
+        target_time = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
+        if now < target_time:
+            return p_type, target_time
+            
+    # اگر بعد از ساعت 19 اجرا شد، پست فردا ساعت 10 را آماده کن
+    target_time = now.replace(hour=10, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)
+    return "edu", target_time
+
+if __name__ == "__main__":
+    post_type, target_time = get_next_target()
+    schedule_timestamp = int(target_time.timestamp())
+    
+    iran_tz = pytz.timezone('Asia/Tehran')
+    print(f"زمان بیداری ربات: {datetime.datetime.now(iran_tz).strftime('%H:%M:%S')}")
+    print(f"درحال تهیه داغ‌ترین پست {post_type} برای رزرو دقیق در ساعت {target_time.strftime('%H:%M:%S')}...")
+    
+    caption, resource = generate_content(post_type)
+    
+    if not caption:
+        print("محتوایی یافت نشد. خروج.")
+        exit(0)
+        
     if resource == "TEXT_ONLY":
-        print("اجرای پست. خبر فاقد عکس است، ارسال به صورت متن خالی انجام می‌شود.")
-        send_post(caption, image_url=None)
+        print("ارسال زمان‌بندی شده به صورت متن خالی...")
+        send_post(caption, image_url=None, schedule_date=schedule_timestamp)
     elif resource and resource.startswith("http"):
-        print(f"اجرای پست. استفاده از عکس رسمی سایت: {resource}")
-        send_post(caption, image_url=resource)
+        print(f"ارسال زمان‌بندی شده با عکس رسمی سایت: {resource}")
+        send_post(caption, image_url=resource, schedule_date=schedule_timestamp)
     else:
-        print(f"اجرای پست آموزشی. جستجوی پکسلز با کلمه خنثی: {resource}") 
+        print(f"ارسال زمان‌بندی شده با عکس پکسلز: {resource}") 
         image_url = get_pexels_image(resource)
-        send_post(caption, image_url=image_url)
+        send_post(caption, image_url=image_url, schedule_date=schedule_timestamp)
