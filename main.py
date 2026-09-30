@@ -69,13 +69,20 @@ def get_og_image(url):
         print(f"Error fetching OG image: {e}")
     return None
 
+def is_entry_fresh(entry):
+    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+        pub_time = datetime.datetime(*entry.published_parsed[:6], tzinfo=pytz.utc)
+        now_utc = datetime.datetime.now(pytz.utc)
+        if (now_utc - pub_time).total_seconds() > 48 * 3600:
+            return False
+    return True
+
 def is_relevant_news(title):
     forbidden_keywords = [
         'طلا', 'سکه', 'دلار', 'ارز', 'گوشت', 'مرغ', 'ترافیک', 'جاده', 'آب و هوا',
         'مدارس', 'تعطیلی', 'گازوئیل', 'بنزین', 'نفت', 'عراق', 'انگلیس', 'آمریکا',
         'ترامپ', 'جنگ', 'اسرائیل', 'غزه', 'قتل', 'تصادف', 'حوادث', 'ورزش', 
         'فوتبال', 'سینما', 'بازیگر', 'خودرو', 'بورس', 'دیوان عدالت', 'سکو',
-        # کلمات کلان، افتتاحیه و گزارش‌های بی‌فایده دولتی
         'پروژه', 'تحقق', 'درآمد مالیاتی', 'استان', 'استاندار', 'شهردار', 'مجلس',
         'فرماندار', 'افتتاح', 'نشست', 'همایش', 'مراسم', 'دیدار', 'بودجه', 'وزیر',
         'گزارش عملکرد', 'توسعه', 'تامین مالی', 'میزان وصول'
@@ -96,13 +103,17 @@ def is_relevant_news(title):
 
 def is_news_valuable(title):
     try:
+        iran_tz = pytz.timezone('Asia/Tehran')
+        today_date = datetime.datetime.now(iran_tz).strftime('%Y-%m-%d')
         prompt = f"""
-        تو یک سردبیر تخصصی رسانه اقتصادی-حقوقی هستی.
+        تو سردبیر یک رسانه تحلیلی اقتصادی-مالیاتی هستی. تاریخ امروز: {today_date}.
         تیتر خبر: "{title}"
-        آیا این خبر ارزش کاربردی و عملیاتی مستقیم برای صاحبان کسب‌وکار، حسابداران، کارمندان، کارگران یا اصناف دارد؟
-        اخبار مربوط به عملکرد تشریفاتی سازمان‌ها، آمار کلان وصول درآمد دولت، جلسات استانداران، ساخت‌وسازها و طرح‌های استانی باید فوراً رد شوند.
-        تنها اگر خبر اثر عملی یا قانونی مستقیم دارد بنویس: YES
-        در غیر این صورت بنویس: NO
+        
+        دو شرط اجباری:
+        1. خبر نباید منقضی، قدیمی یا مربوط به مهلت‌های گذشته (مثل ماه‌های قبل) باشد.
+        2. خبر باید اثر عملی، قانونی یا مالی مستقیم برای مودیان، اصناف، کارگران یا شرکت‌ها داشته باشد (گزارش‌کارهای اداری و دولتی رد شوند).
+        
+        آیا این خبر تایید است؟ فقط بنویس: YES یا NO
         """
         response = model.generate_content(prompt)
         return "YES" in response.text.upper()
@@ -116,13 +127,16 @@ def get_latest_content(history, category="general"):
         for url in rss_urls:
             try:
                 feed = feedparser.parse(url)
-                for entry in feed.entries[:10]:
+                for entry in feed.entries[:8]:
                     title = entry.title
-                    if title not in history:
-                        image_url = extract_image_from_entry(entry)
-                        if not image_url:
-                            image_url = get_og_image(entry.link)
-                        return title, entry.link, image_url
+                    if title in history:
+                        continue
+                    if not is_entry_fresh(entry):
+                        continue
+                    image_url = extract_image_from_entry(entry)
+                    if not image_url:
+                        image_url = get_og_image(entry.link)
+                    return title, entry.link, image_url
             except Exception:
                 continue 
         return None, None, None
@@ -132,21 +146,24 @@ def get_latest_content(history, category="general"):
             ("https://www.khabarfoori.com/%D8%A8%D8%AE%D8%B4-%D8%A7%D9%82%D8%AA%D8%B5%D8%A7%D8%AF%DB%8C-145", "khabarfoori")
         ]
         random.shuffle(sources)
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        
         for url, source_name in sources:
             try:
                 resp = requests.get(url, headers=headers, timeout=15)
                 html = resp.text
                 news_list = []
+                
+                # خواندن فقط ۵ خبر اول هر صفحه برای جلوگیری از نفوذ به اخبار آرشیوی گذشته
                 if source_name == "mehr":
                     matches = re.findall(r'<a href="(/news/\d+/[^"]+)"[^>]*>(.*?)</a>', html)
-                    for link, title in matches:
+                    for link, title in matches[:6]:
                         title = re.sub(r'<[^>]+>', '', title).strip()
                         if len(title) > 20:
                             news_list.append((title, "https://www.mehrnews.com" + link))
                 elif source_name == "khabarfoori":
                     matches = re.findall(r'<a href="([^"]+)"[^>]*>(.*?)</a>', html)
-                    for link, title in matches:
+                    for link, title in matches[:8]:
                         title = re.sub(r'<[^>]+>', '', title).strip()
                         if len(title) > 20 and ('/بخش-' in link or '/fa/tiny/' in link or '/detail/' in link):
                             if not link.startswith("http"):
@@ -322,7 +339,7 @@ if __name__ == "__main__":
     caption, resource = generate_content(post_type)
     
     if not caption:
-        print("هیچ خبر معتبر و مرتبطی یافت نشد. خروج از برنامه.")
+        print("هیچ خبر معتبر، جدید و مرتبطی یافت نشد. خروج از برنامه.")
         exit(0)
         
     if resource == "TEXT_ONLY":
