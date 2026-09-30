@@ -2,10 +2,10 @@ name: Eyvazi Coach Automation
 
 on:
   schedule:
-    - cron: '30 6 * * *'   # 10:00 AM Iran Time (Educational)
-    - cron: '30 9 * * *'   # 13:00 PM Iran Time (News)
-    - cron: '30 12 * * *'  # 16:00 PM Iran Time (Educational)
-    - cron: '30 15 * * *'  # 19:00 PM Iran Time (News)
+    - cron: '45 5 * * *'   # بیداری 9:15 صبح (برای انتشار دقیق در 10:00)
+    - cron: '45 8 * * *'   # بیداری 12:15 ظهر (برای انتشار دقیق در 13:00)
+    - cron: '45 11 * * *'  # بیداری 15:15 عصر (برای انتشار دقیق در 16:00)
+    - cron: '45 14 * * *'  # بیداری 18:15 شب (برای انتشار دقیق در 19:00)
   workflow_dispatch:
 
 permissions:
