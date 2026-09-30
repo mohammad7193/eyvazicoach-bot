@@ -7,7 +7,6 @@ import feedparser
 import re
 import google.generativeai as genai
 
-# دریافت ایمن متغیرهای محیطی
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -52,14 +51,12 @@ def extract_image_from_entry(entry):
 def get_og_image(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        resp = requests.get(url, headers=headers, timeout=15)
-        
+        resp = requests.get(url, headers=headers, timeout=12)
         match = re.search(r'property=[\'"]og:image[\'"]\s+content=[\'"]([^\'"]+)[\'"]', resp.text, re.IGNORECASE)
         if not match:
             match = re.search(r'content=[\'"]([^\'"]+)[\'"]\s+property=[\'"]og:image[\'"]', resp.text, re.IGNORECASE)
         if not match:
             match = re.search(r'<img[^>]+src=[\'"]([^\'"]+)[\'"][^>]+itemprop=[\'"]image[\'"]', resp.text, re.IGNORECASE)
-            
         if match:
             img_url = match.group(1)
             if not img_url.startswith("http"):
@@ -69,7 +66,7 @@ def get_og_image(url):
                     img_url = "https://www.khabarfoori.com" + img_url
             return img_url
     except Exception as e:
-        print(f"OG Image Error: {e}")
+        print(f"Error fetching OG image: {e}")
     return None
 
 def is_relevant_news(title):
@@ -77,13 +74,17 @@ def is_relevant_news(title):
         'طلا', 'سکه', 'دلار', 'ارز', 'گوشت', 'مرغ', 'ترافیک', 'جاده', 'آب و هوا',
         'مدارس', 'تعطیلی', 'گازوئیل', 'بنزین', 'نفت', 'عراق', 'انگلیس', 'آمریکا',
         'ترامپ', 'جنگ', 'اسرائیل', 'غزه', 'قتل', 'تصادف', 'حوادث', 'ورزش', 
-        'فوتبال', 'سینما', 'بازیگر', 'خودرو', 'بورس', 'دیوان عدالت', 'سکو'
+        'فوتبال', 'سینما', 'بازیگر', 'خودرو', 'بورس', 'دیوان عدالت', 'سکو',
+        # کلمات کلان، افتتاحیه و گزارش‌های بی‌فایده دولتی
+        'پروژه', 'تحقق', 'درآمد مالیاتی', 'استان', 'استاندار', 'شهردار', 'مجلس',
+        'فرماندار', 'افتتاح', 'نشست', 'همایش', 'مراسم', 'دیدار', 'بودجه', 'وزیر',
+        'گزارش عملکرد', 'توسعه', 'تامین مالی', 'میزان وصول'
     ]
     allowed_keywords = [
         'مالیات', 'بیمه', 'حقوق', 'دستمزد', 'کارگر', 'کارفرما', 'قانون کار', 
         'اصناف', 'کسب و کار', 'چک', 'بانک', 'وام', 'تسهیلات', 'تجارت', 
         'مودیان', 'بازنشسته', 'تامین اجتماعی', 'اداره کار', 'اظهارنامه',
-        'بخشنامه', 'حسابداری', 'استخدام', 'یارانه', 'اقتصاد', 'مالی'
+        'بخشنامه', 'حسابداری', 'استخدام', 'یارانه', 'سامانه مودیان', 'معافیت'
     ]
     for bad in forbidden_keywords:
         if bad in title:
@@ -92,6 +93,21 @@ def is_relevant_news(title):
         if good in title:
             return True
     return False
+
+def is_news_valuable(title):
+    try:
+        prompt = f"""
+        تو یک سردبیر تخصصی رسانه اقتصادی-حقوقی هستی.
+        تیتر خبر: "{title}"
+        آیا این خبر ارزش کاربردی و عملیاتی مستقیم برای صاحبان کسب‌وکار، حسابداران، کارمندان، کارگران یا اصناف دارد؟
+        اخبار مربوط به عملکرد تشریفاتی سازمان‌ها، آمار کلان وصول درآمد دولت، جلسات استانداران، ساخت‌وسازها و طرح‌های استانی باید فوراً رد شوند.
+        تنها اگر خبر اثر عملی یا قانونی مستقیم دارد بنویس: YES
+        در غیر این صورت بنویس: NO
+        """
+        response = model.generate_content(prompt)
+        return "YES" in response.text.upper()
+    except Exception:
+        return False
 
 def get_latest_content(history, category="general"):
     if category == "official_rules":
@@ -140,7 +156,7 @@ def get_latest_content(history, category="general"):
                 for title, link in news_list:
                     if not is_relevant_news(title):
                         continue
-                    if title not in history:
+                    if title not in history and is_news_valuable(title):
                         image_url = get_og_image(link)
                         return title, link, image_url
             except Exception as e:
@@ -159,19 +175,18 @@ def generate_content(post_type):
         save_history(news_title)
         
         prompt = f"""
-        You are a professional and eloquent Iranian financial journalist writing for Telegram/Bale in Persian (Farsi).
+        You are a professional Iranian financial journalist writing for Telegram/Bale in Persian.
         Topic: "خبر: {news_title}"
         
         STRICT CONTENT GUIDELINES:
-        1. TONE & STYLE: Write beautifully, naturally, and smoothly. DO NOT act like a preacher or advisor. NEVER use forced labels. Just report the news and its context fluidly.
-        2. RESPECTFUL & DIGNIFIED: Maintain a highly professional, dignified tone.
-        3. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers or facts.
-        4. CONCISENESS: Keep the caption brief and punchy. (Max 60-70 words).
-        5. Structure: 
-           - Line 1: Catchy, natural title with 1 relevant emoji.
-           - Body: 1 or 2 cohesive paragraphs seamlessly delivering the news.
+        1. TONE & STYLE: Write clearly and naturally. Do NOT act like a preacher. NEVER use forced labels.
+        2. ACCURACY: Base your text ONLY on the provided title. Do NOT invent numbers or facts.
+        3. CONCISENESS: Keep it brief and punchy. (Max 60-70 words).
+        4. Structure: 
+           - Line 1: Catchy title with 1 relevant emoji.
+           - Body: 1 or 2 cohesive paragraphs delivering the factual news context.
            - Last line: @eyvazicoach
-        6. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
+        5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         """
         response = model.generate_content(prompt)
         caption = response.text.strip()
@@ -186,25 +201,23 @@ def generate_content(post_type):
         save_history(rule_title)
         
         prompt = f"""
-        You are a professional Iranian legal/financial analyst writing for Telegram/Bale in Persian (Farsi).
-        Official Rule/Circular to explain: "{rule_title}"
+        You are a professional Iranian legal/financial analyst writing for Telegram/Bale in Persian.
+        Official Rule to explain: "{rule_title}"
         
         STRICT CONTENT GUIDELINES:
-        1. TONE & STYLE: Write beautifully, clearly, and naturally. DO NOT use forced labels. Blend the explanation smoothly.
-        2. RESPECTFUL & DIGNIFIED: Keep the tone dignified and professional. 
-        3. NO HALLUCINATION: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages or deadlines.
-        4. CONCISENESS: Keep it brief and concise. (Max 60-70 words).
-        5. Structure: 
-           - Line 1: Engaging, clear title with 1 emoji.
-           - Body: 1 or 2 cohesive paragraphs explaining the rule simply.
+        1. TONE & STYLE: Write clearly and naturally. Do NOT use forced labels. Blend the explanation smoothly.
+        2. ACCURACY: Rely ONLY on the premise of the provided rule. DO NOT invent tax percentages or deadlines.
+        3. CONCISENESS: Keep it brief and concise. (Max 60-70 words).
+        4. Structure: 
+           - Line 1: Engaging title with 1 emoji.
+           - Body: 1 or 2 cohesive paragraphs explaining the practical rule simply.
            - Last line: @eyvazicoach
-        6. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
+        5. Formatting: Use <b>word</b> for emphasis. NEVER use markdown asterisks (*).
         
         After the text, output exactly "---" on a new line.
         
-        IMAGE QUERY RULES (CRITICAL):
-        We need a visually neutral image. ABSOLUTELY NO MONEY, NO COINS, NO CALCULATORS, NO CURRENCY.
-        Output EXACTLY ONE of the following safe keywords for Pexels. DO NOT write anything else:
+        IMAGE QUERY RULES:
+        Output EXACTLY ONE safe keyword for Pexels if needed:
         cup of black tea on desk
         blank open notebook
         minimalist office plant
@@ -226,7 +239,6 @@ def get_pexels_image(query):
         url = f"https://api.pexels.com/v1/search?query={query}&per_page=15"
         headers = {"Authorization": PEXELS_API_KEY}
         response = requests.get(url, headers=headers, timeout=10).json()
-        
         if "photos" in response and len(response["photos"]) > 0:
             random_photo = random.choice(response["photos"])
             return random_photo["src"]["large"]
@@ -262,7 +274,6 @@ def send_post(caption, image_url=None, schedule_date=None):
             print(f"Bale Photo Status: {res_bale.status_code}")
         except Exception as e:
             print(f"Bale Photo Error: {e}")
-            
     else:
         try:
             tg_payload["text"] = caption
@@ -282,7 +293,6 @@ def send_post(caption, image_url=None, schedule_date=None):
             print(f"Bale Text Error: {e}")
 
 def get_next_target():
-    # پیدا کردن نزدیک‌ترین ساعت هدف به زمان فعلی (برای رزرو دقیق پست)
     iran_tz = pytz.timezone('Asia/Tehran')
     now = datetime.datetime.now(iran_tz)
     
@@ -298,7 +308,6 @@ def get_next_target():
         if now < target_time:
             return p_type, target_time
             
-    # اگر بعد از ساعت 19 اجرا شد، پست فردا ساعت 10 را آماده کن
     target_time = now.replace(hour=10, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)
     return "edu", target_time
 
@@ -307,22 +316,22 @@ if __name__ == "__main__":
     schedule_timestamp = int(target_time.timestamp())
     
     iran_tz = pytz.timezone('Asia/Tehran')
-    print(f"زمان بیداری ربات: {datetime.datetime.now(iran_tz).strftime('%H:%M:%S')}")
-    print(f"درحال تهیه داغ‌ترین پست {post_type} برای رزرو دقیق در ساعت {target_time.strftime('%H:%M:%S')}...")
+    print(f"اجرا در ساعت: {datetime.datetime.now(iran_tz).strftime('%H:%M:%S')}")
+    print(f"درحال آماده‌سازی محتوا برای ساعت هدف {target_time.strftime('%H:%M:%S')}...")
     
     caption, resource = generate_content(post_type)
     
     if not caption:
-        print("محتوایی یافت نشد. خروج.")
+        print("هیچ خبر معتبر و مرتبطی یافت نشد. خروج از برنامه.")
         exit(0)
         
     if resource == "TEXT_ONLY":
-        print("ارسال زمان‌بندی شده به صورت متن خالی...")
+        print("ارسال خبر بدون تصویر به شکل متنی...")
         send_post(caption, image_url=None, schedule_date=schedule_timestamp)
     elif resource and resource.startswith("http"):
-        print(f"ارسال زمان‌بندی شده با عکس رسمی سایت: {resource}")
+        print(f"ارسال با تصویر اصلی استخراج‌شده از خبرگزاری: {resource}")
         send_post(caption, image_url=resource, schedule_date=schedule_timestamp)
     else:
-        print(f"ارسال زمان‌بندی شده با عکس پکسلز: {resource}") 
+        print(f"ارسال با تصویر پکسلز: {resource}")
         image_url = get_pexels_image(resource)
         send_post(caption, image_url=image_url, schedule_date=schedule_timestamp)
