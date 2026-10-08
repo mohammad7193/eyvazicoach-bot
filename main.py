@@ -14,7 +14,7 @@ BALE_TOKEN = os.environ.get("BALE_BOT_TOKEN")
 BALE_CHAT = os.environ.get("BALE_CHAT_ID")
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel('gemini-3.6-flash')
 
 HISTORY_FILE = "history.txt"
 
@@ -33,10 +33,8 @@ def save_history(snippet):
             f.write(item + "\n")
 
 def clean_telegram_text(raw_html):
-    # تبدیل تگ‌های خط‌شکن و حذف کدهای اضافه
     text = re.sub(r'<br\s*/?>', '\n', raw_html)
     text = re.sub(r'<[^>]+>', '', text)
-    # حذف لینک‌ها و آیدی‌های کانال‌های مبدا
     text = re.sub(r'@[A-Za-z0-9_]+', '', text)
     text = re.sub(r'https?://\S+', '', text)
     return text.strip()
@@ -53,16 +51,13 @@ def scrape_telegram_channel(channel_username):
             return []
             
         html = resp.text
-        # جدا کردن هر بلاک پیام در کانال وب تلگرام
         message_blocks = re.findall(r'<div class="tgme_widget_message_wrap[^"]*">([\s\S]*?)</div>\s*</div>\s*</div>', html)
         
         extracted_posts = []
-        for block in message_blocks[-7:]:  # بررسی ۷ پست اخیر کانال
-            # استخراج تصویر در صورت وجود
+        for block in message_blocks[-7:]:
             img_match = re.search(r'background-image:url\(\'([^\']+)\'\)', block)
             image_url = img_match.group(1) if img_match else None
             
-            # استخراج متن پیام
             text_match = re.search(r'<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>', block)
             if not text_match:
                 continue
@@ -79,7 +74,6 @@ def scrape_telegram_channel(channel_username):
         return []
 
 def is_post_valuable(raw_text):
-    # فیلتر برای رد کردن پیام‌های تبلیغاتی دوره‌ها، تخفیف، تبلیغات متفرقه
     banned_words = ['ثبت نام دوره', 'ظرفیت محدود', 'کد تخفیف', 'مشاوره رایگان تماس', 'آگهی استخدام', 'رزومه بفرستید']
     for bad in banned_words:
         if bad in raw_text:
@@ -111,7 +105,6 @@ def get_best_telegram_post(history):
     for ch in target_channels:
         posts = scrape_telegram_channel(ch)
         for post in reversed(posts):
-            # شناسه‌ای کوتاه از متن برای چک کردن عدم تکرار
             snippet = post["text"][:60].strip()
             if snippet in history:
                 continue
@@ -207,7 +200,6 @@ def get_next_target():
         if now < target_time:
             return target_time
             
-    # بعد از ساعت ۱۹، برای ۱۰ صبح فردا تنظیم شود
     return now.replace(hour=10, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)
 
 if __name__ == "__main__":
