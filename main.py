@@ -41,7 +41,6 @@ def clean_telegram_text(raw_html):
     return text.strip()
 
 def is_text_valuable(text):
-    # فیلتر بدون مصرف سهمیه API (Regex & Keywords)
     if len(text) < 45:
         return False
         
@@ -54,7 +53,6 @@ def is_text_valuable(text):
         if bad in text:
             return False
             
-    # کلمات مورد تایید
     target_keywords = [
         'مالیات', 'ارزش افزوده', 'مودی', 'مؤدی', 'مودیان', 'سامانه مودیان', 
         'اظهارنامه', 'بخشنامه', 'تبصره ماده ۱۰۰', 'معافیت', 'پایانه فروشگاهی', 
@@ -63,7 +61,6 @@ def is_text_valuable(text):
     return any(k in text for k in target_keywords)
 
 def get_intamedia_content(history):
-    """رصد مستقیم سایت و فید رسمی سازمان امور مالیاتی"""
     rss_urls = [
         "https://www.intamedia.ir/rss",
         "https://www.intamedia.ir/news/rss"
@@ -106,8 +103,17 @@ def scrape_telegram_channel(channel_username):
         
         extracted_posts = []
         for block in message_blocks[-6:]:
-            img_match = re.search(r'background-image:url\(\'([^\']+)\'\)', block)
-            image_url = img_match.group(1) if img_match else None
+            # استخراج تصویر فقط از بلاک رسمی مدیا و عکس (جلوگیری از خواندن ایموجی‌ها)
+            photo_wrap = re.search(r'class="[^"]*tgme_widget_message_photo_wrap[^"]*"[^>]*style="[^"]*background-image:url\(\'([^\']+)\'\)', block)
+            image_url = None
+            if photo_wrap:
+                raw_img = photo_wrap.group(1)
+                # بررسی عدم تعلق لینک به ایموجی‌ها یا استیکرها
+                if 'emoji' not in raw_img and not raw_img.endswith('.svg'):
+                    if raw_img.startswith('//'):
+                        image_url = 'https:' + raw_img
+                    elif raw_img.startswith('http'):
+                        image_url = raw_img
             
             text_match = re.search(r'<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>', block)
             if not text_match:
@@ -125,13 +131,11 @@ def scrape_telegram_channel(channel_username):
         return []
 
 def get_best_content(history):
-    # اولویت اول: سازمان امور مالیاتی کشور (intamedia.ir)
     inta_text, inta_img = get_intamedia_content(history)
     if inta_text:
         print("محتوا با موفقیت از مرجع رسمی intamedia.ir دریافت شد.")
         return inta_text, inta_img
 
-    # اولویت دوم: کانال‌های تخصصی مالیاتی تلگرام
     target_channels = ["taxpress", "taxinformation", "rahbarhesab", "Econ_Fouri"]
     random.shuffle(target_channels)
     
@@ -188,14 +192,21 @@ def send_post(caption, image_url=None, schedule_date=None):
         tg_payload["schedule_date"] = schedule_date
         bale_payload["schedule_date"] = schedule_date
 
-    if image_url:
+    # اطمینان از صحت پروتکل تصویر
+    if image_url and image_url.startswith('//'):
+        image_url = 'https:' + image_url
+
+    if image_url and image_url.startswith('http'):
+        img_sent = False
         try:
             img_response = requests.get(image_url, timeout=15)
-            img_data = img_response.content
-            tg_payload["caption"] = caption
-            tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-            res_tg = requests.post(tg_url, data=tg_payload, files={"photo": ("image.jpg", img_data, "image/jpeg")})
-            print(f"Telegram Photo Status: {res_tg.status_code}")
+            if img_response.status_code == 200:
+                img_data = img_response.content
+                tg_payload["caption"] = caption
+                tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+                res_tg = requests.post(tg_url, data=tg_payload, files={"photo": ("image.jpg", img_data, "image/jpeg")})
+                print(f"Telegram Photo Status: {res_tg.status_code}")
+                img_sent = (res_tg.status_code == 200)
         except Exception as e:
             print(f"Telegram Photo Error: {e}")
             
@@ -208,6 +219,17 @@ def send_post(caption, image_url=None, schedule_date=None):
             print(f"Bale Photo Status: {res_bale.status_code}")
         except Exception as e:
             print(f"Bale Photo Error: {e}")
+
+        # اگر به هر دلیلی ارسال عکس در تلگرام ناموفق بود، متن بدون عکس فرستاده شود تا پست از دست نرود
+        if not img_sent:
+            print("ارسال عکس با خطا مواجه شد؛ ارسال جایگزین به صورت متنی...")
+            try:
+                tg_text_payload = {"chat_id": TELEGRAM_CHAT, "text": caption, "parse_mode": "HTML"}
+                if schedule_date:
+                    tg_text_payload["schedule_date"] = schedule_date
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data=tg_text_payload)
+            except Exception as e:
+                print(f"Fallback Text Error: {e}")
     else:
         try:
             tg_payload["text"] = caption
@@ -249,12 +271,12 @@ if __name__ == "__main__":
     caption, image_url = generate_channel_content()
     
     if not caption:
-        print("محتوای جدیدی برای انتشار یافت نشد یا سهمیه API موقتاً در دسترس نیست.")
+        print("محتوای جدیدی برای انتشار یافت نشد.")
         exit(0)
         
     if image_url:
         print(f"ارسال با تصویر استخراج‌شده: {image_url}")
         send_post(caption, image_url=image_url, schedule_date=schedule_timestamp)
     else:
-        print("ارسال پست به صورت متنی...")
+        print("ارسال پست به صورت متنی (فاقد تصویر)...")
         send_post(caption, image_url=None, schedule_date=schedule_timestamp)
