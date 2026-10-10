@@ -3,6 +3,7 @@ import requests
 import datetime
 import pytz
 import random
+import feedparser
 import re
 import google.generativeai as genai
 
@@ -27,7 +28,7 @@ def load_history():
 def save_history(snippet):
     history = load_history()
     history.append(snippet)
-    history = history[-100:]
+    history = history[-150:]
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         for item in history:
             f.write(item + "\n")
@@ -39,14 +40,64 @@ def clean_telegram_text(raw_html):
     text = re.sub(r'https?://\S+', '', text)
     return text.strip()
 
+def is_text_valuable(text):
+    # فیلتر بدون مصرف سهمیه API (Regex & Keywords)
+    if len(text) < 45:
+        return False
+        
+    banned_words = [
+        'ثبت نام دوره', 'ظرفیت محدود', 'کد تخفیف', 'مشاوره رایگان تماس', 
+        'آگهی استخدام', 'رزومه بفرستید', 'پکیج', 'خرید اشتراک', 'همایش حضوری',
+        'پیج اینستاگرام', 'کانال ما را دنبال کنید', 'فروش ویژه', 'دعوت به همکاری'
+    ]
+    for bad in banned_words:
+        if bad in text:
+            return False
+            
+    # کلمات مورد تایید
+    target_keywords = [
+        'مالیات', 'ارزش افزوده', 'مودی', 'مؤدی', 'مودیان', 'سامانه مودیان', 
+        'اظهارنامه', 'بخشنامه', 'تبصره ماده ۱۰۰', 'معافیت', 'پایانه فروشگاهی', 
+        'جرایم', 'جریمه', 'صورتحساب', 'دارایی', 'کارفرما', 'کارگر', 'حقوق', 'بیمه'
+    ]
+    return any(k in text for k in target_keywords)
+
+def get_intamedia_content(history):
+    """رصد مستقیم سایت و فید رسمی سازمان امور مالیاتی"""
+    rss_urls = [
+        "https://www.intamedia.ir/rss",
+        "https://www.intamedia.ir/news/rss"
+    ]
+    for url in rss_urls:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:8]:
+                title = entry.title.strip()
+                summary = clean_telegram_text(getattr(entry, 'summary', title))
+                full_text = f"{title}\n{summary}"
+                
+                snippet = title[:60]
+                if snippet in history:
+                    continue
+                    
+                if is_text_valuable(full_text):
+                    img_url = None
+                    if hasattr(entry, 'enclosures') and entry.enclosures:
+                        img_url = entry.enclosures[0].get('href')
+                    save_history(snippet)
+                    return full_text, img_url
+        except Exception as e:
+            print(f"خطا در خواندن فید intamedia: {e}")
+            
+    return None, None
+
 def scrape_telegram_channel(channel_username):
     url = f"https://t.me/s/{channel_username}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    
     try:
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = requests.get(url, headers=headers, timeout=12)
         if resp.status_code != 200:
             return []
             
@@ -54,7 +105,7 @@ def scrape_telegram_channel(channel_username):
         message_blocks = re.findall(r'<div class="tgme_widget_message_wrap[^"]*">([\s\S]*?)</div>\s*</div>\s*</div>', html)
         
         extracted_posts = []
-        for block in message_blocks[-7:]:
+        for block in message_blocks[-6:]:
             img_match = re.search(r'background-image:url\(\'([^\']+)\'\)', block)
             image_url = img_match.group(1) if img_match else None
             
@@ -63,42 +114,24 @@ def scrape_telegram_channel(channel_username):
                 continue
                 
             clean_text = clean_telegram_text(text_match.group(1))
-            if len(clean_text) > 40:
+            if is_text_valuable(clean_text):
                 extracted_posts.append({
                     "text": clean_text,
                     "image": image_url
                 })
         return extracted_posts
     except Exception as e:
-        print(f"Error scraping @{channel_username}: {e}")
+        print(f"خطا در اسکرپ کانال @{channel_username}: {e}")
         return []
 
-def is_post_valuable(raw_text):
-    banned_words = ['ثبت نام دوره', 'ظرفیت محدود', 'کد تخفیف', 'مشاوره رایگان تماس', 'آگهی استخدام', 'رزومه بفرستید']
-    for bad in banned_words:
-        if bad in raw_text:
-            return False
-            
-    try:
-        prompt = f"""
-        تو سردبیر تخصصی یک کانال مرجع در حوزه حسابداری، مالیات و حقوق کسب‌وکار هستی.
-        متن زیر از یک کانال تخصصی تلگرام کپی شده است:
-        ---
-        {raw_text[:400]}
-        ---
-        شرایط تایید:
-        1. متن نباید صرفاً یک تبلیغ، پکیج آموزشی، تبلیغ نرم‌افزار، یا آگهی استخدام باشد.
-        2. باید حاوی بخشنامه رسمی، مهلت قانونی، آموزش کاربردی، نرخ جدید، یا خبر مهم مالیاتی/بیمه‌ای باشد.
-        
-        آیا این پست ارزش بازنشر برای فعالان اقتصادی دارد؟
-        فقط بنویس: YES یا NO
-        """
-        response = model.generate_content(prompt)
-        return "YES" in response.text.upper()
-    except Exception:
-        return True
+def get_best_content(history):
+    # اولویت اول: سازمان امور مالیاتی کشور (intamedia.ir)
+    inta_text, inta_img = get_intamedia_content(history)
+    if inta_text:
+        print("محتوا با موفقیت از مرجع رسمی intamedia.ir دریافت شد.")
+        return inta_text, inta_img
 
-def get_best_telegram_post(history):
+    # اولویت دوم: کانال‌های تخصصی مالیاتی تلگرام
     target_channels = ["taxpress", "taxinformation", "rahbarhesab", "Econ_Fouri"]
     random.shuffle(target_channels)
     
@@ -108,23 +141,22 @@ def get_best_telegram_post(history):
             snippet = post["text"][:60].strip()
             if snippet in history:
                 continue
-                
-            if is_post_valuable(post["text"]):
-                save_history(snippet)
-                return post["text"], post["image"]
-                
+            save_history(snippet)
+            print(f"محتوا با موفقیت از کانال تلگرام @{ch} دریافت شد.")
+            return post["text"], post["image"]
+            
     return None, None
 
 def generate_channel_content():
     history = load_history()
-    raw_text, image_url = get_best_telegram_post(history)
+    raw_text, image_url = get_best_content(history)
     
     if not raw_text:
         return None, None
 
     prompt = f"""
     You are an expert Iranian financial, tax, and labor consultant drafting an official post for Telegram/Bale in Persian.
-    Raw content extracted from authoritative tax channels:
+    Raw content extracted from authoritative tax references:
     ---
     {raw_text}
     ---
@@ -140,9 +172,13 @@ def generate_channel_content():
        - Last line: @eyvazicoach
     6. FORMATTING: Use <b>bold</b> for key words. NEVER use markdown asterisks (*).
     """
-    response = model.generate_content(prompt)
-    caption = response.text.strip()
-    return caption, image_url
+    try:
+        response = model.generate_content(prompt)
+        caption = response.text.strip()
+        return caption, image_url
+    except Exception as e:
+        print(f"خطای مدل در تولید متن: {e}")
+        return None, None
 
 def send_post(caption, image_url=None, schedule_date=None):
     tg_payload = {"chat_id": TELEGRAM_CHAT, "parse_mode": "HTML"}
@@ -208,17 +244,17 @@ if __name__ == "__main__":
     
     iran_tz = pytz.timezone('Asia/Tehran')
     print(f"زمان اجرا: {datetime.datetime.now(iran_tz).strftime('%H:%M:%S')}")
-    print(f"بررسی کانال‌های مرجع برای زمان‌بندی در ساعت {target_time.strftime('%H:%M:%S')}...")
+    print(f"هدف زمان‌بندی: {target_time.strftime('%H:%M:%S')}")
     
     caption, image_url = generate_channel_content()
     
     if not caption:
-        print("هیچ خبر معتبر جدیدی در کانال‌های مرجع یافت نشد.")
+        print("محتوای جدیدی برای انتشار یافت نشد یا سهمیه API موقتاً در دسترس نیست.")
         exit(0)
         
     if image_url:
-        print(f"ارسال با تصویر اصلی کانال مرجع: {image_url}")
+        print(f"ارسال با تصویر استخراج‌شده: {image_url}")
         send_post(caption, image_url=image_url, schedule_date=schedule_timestamp)
     else:
-        print("پست فاقد تصویر بود، ارسال به صورت متنی انجام می‌شود.")
+        print("ارسال پست به صورت متنی...")
         send_post(caption, image_url=None, schedule_date=schedule_timestamp)
