@@ -28,7 +28,7 @@ SURFACES = [
     "matte charcoal slate stone table with subtle mineral textures",
     "minimalist dark polished industrial concrete desk",
     "luxurious black marble desk with ultra-subtle gold and white veining",
-    "executive smoked oak executive wooden table"
+    "executive smoked oak wooden table"
 ]
 
 OBJECT_SETS = [
@@ -79,6 +79,12 @@ def is_clean_and_relevant(text):
     if len(text) < 50:
         return False
         
+    # مسدودسازی اخبار سال‌های گذشته در سطح کد
+    old_years = ['۱۴۰۲', '1402', '۱۴۰۳', '1403']
+    for old_y in old_years:
+        if old_y in text and '۱۴۰۵' not in text and '1405' not in text:
+            return False
+
     ad_keywords = [
         'دوره', 'کارگاه', 'وبینار', 'سمینار', 'ثبت نام', 'ثبت‌نام', 'شهریه', 
         'تخفیف', 'ظرفیت', 'استاد', 'مدرس', 'پکیج', 'فروش', 'خرید', 'مشاوره', 
@@ -174,27 +180,60 @@ CRITICAL INSTRUCTION FOR TEXT: A pristine cream-colored official letterhead pape
     return prompt.strip()
 
 def generate_story_image(prompt_text):
-    """تولید تصویر استوری با مدل Imagen 3 بر اساس پرامپت اختصاصی"""
-    try:
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={GEMINI_API_KEY}"
-        payload = {
-            "instances": [{"prompt": prompt_text}],
-            "parameters": {
-                "sampleCount": 1,
-                "aspectRatio": "9:16",
-                "outputOptions": {"mimeType": "image/jpeg"}
+    """تلاش چندلایه برای تولید تصویر با مدل‌های بومی جمینای (Nano Banana) و Imagen"""
+    # ۱. تلاش اول: استفاده از مدل بومی تولید تصویر Gemini (از طریق generateContent)
+    gemini_image_models = [
+        "gemini-2.0-flash-exp-image-generation",
+        "gemini-2.5-flash-image-preview"
+    ]
+    for m_name in gemini_image_models:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt_text}]}],
+                "generationConfig": {"responseModalities": ["IMAGE"]}
             }
-        }
-        res = requests.post(api_url, json=payload, timeout=40)
-        if res.status_code == 200:
-            img_b64 = res.json()["predictions"][0]["bytesBase64Encoded"]
-            return base64.b64decode(img_b64)
-        else:
-            print(f"Imagen API Error ({res.status_code}): {res.text}")
-            return None
-    except Exception as e:
-        print(f"Image generation error: {e}")
-        return None
+            res = requests.post(url, json=payload, timeout=45)
+            if res.status_code == 200:
+                data = res.json()
+                parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                for part in parts:
+                    if "inlineData" in part:
+                        print(f"تصویر استوری با موفقیت توسط مدل {m_name} ساخته شد.")
+                        return base64.b64decode(part["inlineData"]["data"])
+            else:
+                print(f"Model {m_name} status {res.status_code}")
+        except Exception as e:
+            print(f"Exception with {m_name}: {e}")
+
+    # ۲. تلاش دوم: بررسی مدل‌های Imagen از طریق متد predict
+    imagen_models = [
+        "imagen-3.0-generate-001",
+        "imagen-3.0-fast-generate-001"
+    ]
+    for imp_model in imagen_models:
+        try:
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{imp_model}:predict?key={GEMINI_API_KEY}"
+            payload = {
+                "instances": [{"prompt": prompt_text}],
+                "parameters": {
+                    "sampleCount": 1,
+                    "aspectRatio": "9:16",
+                    "outputOptions": {"mimeType": "image/jpeg"}
+                }
+            }
+            res = requests.post(api_url, json=payload, timeout=40)
+            if res.status_code == 200:
+                img_b64 = res.json()["predictions"][0]["bytesBase64Encoded"]
+                print(f"تصویر استوری با موفقیت توسط مدل {imp_model} ساخته شد.")
+                return base64.b64decode(img_b64)
+            else:
+                print(f"Model {imp_model} status {res.status_code}")
+        except Exception as e:
+            print(f"Exception with {imp_model}: {e}")
+
+    print("تولید خودکار تصویر با کلید رایگان فعلی پشتیبانی نشد؛ ارسال متن به همراه پرامپت آماده تصویر.")
+    return None
 
 def generate_verified_package():
     history = load_history()
@@ -209,36 +248,40 @@ def generate_verified_package():
         prompt = f"""
         نقش:
         تو طراح تخصصی استوری اینستاگرام و کپی‌رایتر مالیاتی-مدیریتی برای برند «EyvaziCoach» هستی.
-        وظیفه تو تبدیل متن خبر/بخشنامه زیر به کپشن رسمی و خنثی است:
+        توجه بسیار مهم زمانی: ما اکنون در **آبان ماه سال ۱۴۰۵ خورشیدی (اکتبر ۲۰۲۶)** هستیم.
+        
+        متن ورودی:
         ---
         {item["text"]}
         ---
 
-        شرط بازبینی (مهم):
-        اگر این متن هرگونه تبلیغ دوره، کارگاه، وبینار، نرم‌افزار، یا نام مدرس دیگری است، بلافاصله فقط بنویس: REJECT_AD
+        شروط رد فوری (فقط کلمه REJECT_AD را خروجی بده):
+        1. اگر متن هرگونه تبلیغ دوره، کارگاه، وبینار، نرم‌افزار، مشاوره یا نام مدرس دیگری است.
+        2. اگر خبر منقضی‌شده و مربوط به سال‌های گذشته (مثل سال ۱۴۰۳ یا ۱۴۰۴) است و ارتباطی با سال جاری (۱۴۰۵) ندارد.
 
         دستورالعمل نگارش کپشن (Caption):
         - لحن کاملاً کوتاه، خنثی، رسمی و فاقد اضافه‌گویی
-        - استخراج دقیق شماره بخشنامه، تاریخ‌های انقضا/مهلت و شروط کلیدی در قالب Bullet Points (•)
+        - دقت صددرصدی به تاریخ: سال جاری **۱۴۰۵** است. هرگز به اشتباه سال ۱۴۰۵ را به ۱۴۰۴ یا ۱۴۰۳ تغییر نده!
+        - استخراج دقیق شماره بخشنامه، تاریخ‌ها و شروط کلیدی در قالب Bullet Points (•)
         - خط اول: تیتر صریح و بولد
         - خط آخر: 🌐 @EyvaziCoach
         - برای بولد کردن فقط از تگ <b>استفاده کن</b> و اصلاً ستاره (*) نگذار.
 
         بعد از نگارش کپشن، در یک خط جداگانه بنویس:
         ---HEADLINE---
-        و در خط بعد فقط یک تیتر کوتاه و موجز فارسی (حداکثر ۵ تا ۶ کلمه) بنویس که باید روی سربرگ پوستر قرار گیرد.
+        و در خط بعد فقط یک تیتر کوتاه و موجز فارسی (حداکثر ۵ کلمه) بدون ذکر سال‌های قدیمی بنویس که روی سربرگ پوستر چاپ شود.
         """
         try:
             response = text_model.generate_content(prompt)
             result = response.text.strip()
             
             if "REJECT_AD" in result or len(result) < 40:
-                print(f"پست از {item['source']} به دلیل تبلیغاتی بودن رد شد.")
+                print(f"پست از {item['source']} به دلیل تبلیغاتی یا قدیمی بودن رد شد.")
                 continue
                 
             parts = result.split("---HEADLINE---")
             caption = parts[0].strip()
-            headline = parts[1].strip() if len(parts) > 1 else "اطلاعیه رسمی مالیاتی"
+            headline = parts[1].strip() if len(parts) > 1 else "اطلاعیه رسمی سازمان امور مالیاتی"
             
             # تولید پرامپت اختصاصی بر اساس سبک ژورنالیستی Editorial Flat Lay
             image_prompt = build_editorial_prompt(headline)
@@ -254,7 +297,6 @@ def generate_verified_package():
     return None, None, None
 
 def send_to_channel_and_admin(caption, image_bytes=None, prompt_used=None, schedule_date=None):
-    # ۱. ارسال پوستر استوری و کپشن به کانال اصلی (یا چت خصوصی در صورت تنظیم ID ادمین)
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto" if image_bytes else f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT,
@@ -272,10 +314,19 @@ def send_to_channel_and_admin(caption, image_bytes=None, prompt_used=None, sched
             payload["text"] = caption
             res = requests.post(tg_url, data=payload, timeout=15)
         print(f"Telegram Post Status: {res.status_code}")
+        
+        # اگر TELEGRAM_CHAT_ID روی چت خصوصی تنظیم شده باشد و عکس ساخته نشده باشد، پرامپت را هم بفرستد
+        if not image_bytes and prompt_used and not str(TELEGRAM_CHAT).startswith("-100"):
+            prompt_msg = f"🎨 <b>پرامپت آماده ساخت استوری (Nano Banana):</b>\n\n<code>{prompt_used}</code>"
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                data={"chat_id": TELEGRAM_CHAT, "text": prompt_msg, "parse_mode": "HTML"},
+                timeout=15
+            )
     except Exception as e:
         print(f"Telegram Error: {e}")
 
-    # ۲. ارسال متن رسمی به بله
+    # ارسال متن رسمی به بله
     try:
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
         requests.post(f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage", data={"chat_id": BALE_CHAT, "text": bale_caption}, timeout=15)
