@@ -10,10 +10,11 @@ import io
 import base64
 import google.generativeai as genai
 
-# متغیرهای محیطی
+# دریافت متغیرهای محیطی
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID")  # آیدی کانال عمومی
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")     # آیدی عددی چت خصوصی ادمین
 BALE_TOKEN = os.environ.get("BALE_BOT_TOKEN")
 BALE_CHAT = os.environ.get("BALE_CHAT_ID")
 
@@ -22,7 +23,7 @@ text_model = genai.GenerativeModel('gemini-3.6-flash')
 
 HISTORY_FILE = "history.txt"
 
-# تنوع‌بخش‌های چیدمان سبک Editorial Flat Lay برای جلوگیری از تکراری شدن تصاویر
+# تنوع‌بخش‌های چیدمان سبک Editorial Flat Lay برای جلوگیری از تکراری شدن استوری‌ها
 SURFACES = [
     "deep dark walnut wood office desk with subtle natural grain",
     "matte charcoal slate stone table with subtle mineral textures",
@@ -79,19 +80,21 @@ def is_clean_and_relevant(text):
     if len(text) < 50:
         return False
         
-    # مسدودسازی اخبار سال‌های گذشته در سطح کد
+    # فیلتر اخبار سال‌های گذشته
     old_years = ['۱۴۰۲', '1402', '۱۴۰۳', '1403']
     for old_y in old_years:
         if old_y in text and '۱۴۰۵' not in text and '1405' not in text:
             return False
 
+    # لیست سیاه تبلیغات، دوره‌ها و همایش‌ها
     ad_keywords = [
         'دوره', 'کارگاه', 'وبینار', 'سمینار', 'ثبت نام', 'ثبت‌نام', 'شهریه', 
         'تخفیف', 'ظرفیت', 'استاد', 'مدرس', 'پکیج', 'فروش', 'خرید', 'مشاوره', 
         'تماس بگیرید', 'شماره تماس', 'لینک زیر', 'کلیک کنید', 'استخدام', 'رزومه',
         'همکاری', 'کانال ما', 'پیج', 'اینستاگرام', 'واتساپ', 'تلگرام', 'هدیه',
         'رایگان', 'قرعه کشی', 'قرعه‌کشی', 'اسپانسر', 'تبلیغات', 'معرفی کتاب',
-        'نرم افزار', 'نرم‌افزار', 'دمو', 'جشنواره', 'کد معرف', 'آکادمی', 'موسسه'
+        'نرم افزار', 'نرم‌افزار', 'دمو', 'جشنواره', 'کد معرف', 'آکادمی', 'موسسه',
+        'پروژه', 'تحقق', 'درآمد مالیاتی', 'استاندار', 'شهردار', 'فرماندار', 'افتتاح'
     ]
     for bad in ad_keywords:
         if bad in text:
@@ -106,6 +109,7 @@ def is_clean_and_relevant(text):
     return any(k in text for k in valid_keywords)
 
 def get_intamedia_candidates(history):
+    """رصد مستقیم سازمان امور مالیاتی کشور (intamedia.ir)"""
     candidates = []
     rss_urls = [
         "https://www.intamedia.ir/rss",
@@ -122,8 +126,14 @@ def get_intamedia_candidates(history):
                 if t_hash in history:
                     continue
                 if is_clean_and_relevant(full_text):
+                    img_url = None
+                    if hasattr(entry, 'enclosures') and entry.enclosures:
+                        raw_img = entry.enclosures[0].get('href', '')
+                        if raw_img.startswith('http'):
+                            img_url = raw_img
                     candidates.append({
                         "text": full_text,
+                        "image_url": img_url,
                         "hash": t_hash,
                         "source": "intamedia.ir"
                     })
@@ -132,6 +142,7 @@ def get_intamedia_candidates(history):
     return candidates
 
 def scrape_telegram_candidates(history):
+    """رصد کانال‌های تخصصی مرجع"""
     target_channels = ["taxpress", "taxinformation", "rahbarhesab", "Econ_Fouri"]
     random.shuffle(target_channels)
     candidates = []
@@ -154,6 +165,7 @@ def scrape_telegram_candidates(history):
                 if is_clean_and_relevant(clean_text):
                     candidates.append({
                         "text": clean_text,
+                        "image_url": None,
                         "hash": t_hash,
                         "source": f"@{ch}"
                     })
@@ -162,7 +174,7 @@ def scrape_telegram_candidates(history):
     return candidates
 
 def build_editorial_prompt(headline_persian):
-    """ساخت پرامپت استوری به سبک Editorial Flat Lay با المان‌های متغیر و فضای منفی"""
+    """ساخت پرامپت استوری به سبک Editorial Flat Lay فقط با تیتر اصلی روی برگه"""
     surface = random.choice(SURFACES)
     items = random.choice(OBJECT_SETS)
     light = random.choice(LIGHTING_MOODS)
@@ -171,17 +183,19 @@ def build_editorial_prompt(headline_persian):
 Vertical story framing (aspect ratio 9:16).
 Background: High-end luxurious {surface}.
 Composition and Layout: 
-- Exactly the UPPER 50% of the frame is meticulously styled with authentic high-end items: {items}. Crisp paper texture with fine Iranian tax bureau seals and formal document headers.
+- Exactly the UPPER 50% of the frame is meticulously styled with authentic high-end items: {items}, surrounding a central official cream-colored letterhead paper with an embossed Iranian administrative emblem.
 - Exactly the LOWER 50% of the frame is completely clean, flat, empty NEGATIVE SPACE showing only the pure textured {surface}, perfectly clear for stickers.
 Lighting and Atmosphere: {light}. Realistic depth of field, 8k resolution, cinematic tactile textures.
-Negative Constraints: Absolutely NO human figures, NO faces, NO banknotes, NO coins, NO link stickers, NO UI elements, NO cartoon or 3D render aesthetics.
-CRITICAL INSTRUCTION FOR TEXT: A pristine cream-colored official letterhead paper is placed at the top center. It clearly and accurately features the Persian headline rendered in elegant Iranian typography: "{headline_persian}". Persian script must be beautifully aligned, connected correctly, and perfectly legible --ar 9:16"""
+Negative Constraints: Absolutely NO human figures, NO faces, NO banknotes, NO coins, NO link stickers, NO UI elements, NO body paragraphs or summary text, NO cartoon or 3D render aesthetics.
+CRITICAL INSTRUCTION FOR PERSIAN TEXT:
+On the top header of the cream-colored official paper, print ONLY this exact short Persian title in bold, sharp, authentic right-to-left Iranian typography (Titr/Yekan style):
+"{headline_persian}"
+Do NOT add any extra body text or summary lines below the title. Ensure the Persian letters are properly connected, right-aligned, and completely legible --ar 9:16"""
     
     return prompt.strip()
 
 def generate_story_image(prompt_text):
-    """تلاش چندلایه برای تولید تصویر با مدل‌های بومی جمینای (Nano Banana) و Imagen"""
-    # ۱. تلاش اول: استفاده از مدل بومی تولید تصویر Gemini (از طریق generateContent)
+    """تلاش برای ساخت خودکار عکس در صورت پشتیبانی API"""
     gemini_image_models = [
         "gemini-2.0-flash-exp-image-generation",
         "gemini-2.5-flash-image-preview"
@@ -199,40 +213,9 @@ def generate_story_image(prompt_text):
                 parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
                 for part in parts:
                     if "inlineData" in part:
-                        print(f"تصویر استوری با موفقیت توسط مدل {m_name} ساخته شد.")
                         return base64.b64decode(part["inlineData"]["data"])
-            else:
-                print(f"Model {m_name} status {res.status_code}")
-        except Exception as e:
-            print(f"Exception with {m_name}: {e}")
-
-    # ۲. تلاش دوم: بررسی مدل‌های Imagen از طریق متد predict
-    imagen_models = [
-        "imagen-3.0-generate-001",
-        "imagen-3.0-fast-generate-001"
-    ]
-    for imp_model in imagen_models:
-        try:
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{imp_model}:predict?key={GEMINI_API_KEY}"
-            payload = {
-                "instances": [{"prompt": prompt_text}],
-                "parameters": {
-                    "sampleCount": 1,
-                    "aspectRatio": "9:16",
-                    "outputOptions": {"mimeType": "image/jpeg"}
-                }
-            }
-            res = requests.post(api_url, json=payload, timeout=40)
-            if res.status_code == 200:
-                img_b64 = res.json()["predictions"][0]["bytesBase64Encoded"]
-                print(f"تصویر استوری با موفقیت توسط مدل {imp_model} ساخته شد.")
-                return base64.b64decode(img_b64)
-            else:
-                print(f"Model {imp_model} status {res.status_code}")
-        except Exception as e:
-            print(f"Exception with {imp_model}: {e}")
-
-    print("تولید خودکار تصویر با کلید رایگان فعلی پشتیبانی نشد؛ ارسال متن به همراه پرامپت آماده تصویر.")
+        except Exception:
+            pass
     return None
 
 def generate_verified_package():
@@ -258,18 +241,20 @@ def generate_verified_package():
         شروط رد فوری (فقط کلمه REJECT_AD را خروجی بده):
         1. اگر متن هرگونه تبلیغ دوره، کارگاه، وبینار، نرم‌افزار، مشاوره یا نام مدرس دیگری است.
         2. اگر خبر منقضی‌شده و مربوط به سال‌های گذشته (مثل سال ۱۴۰۳ یا ۱۴۰۴) است و ارتباطی با سال جاری (۱۴۰۵) ندارد.
+        3. اگر خبر گزارش عملکرد دولتی یا استانی بی‌فایده برای کسب‌وکارهاست.
 
-        دستورالعمل نگارش کپشن (Caption):
-        - لحن کاملاً کوتاه، خنثی، رسمی و فاقد اضافه‌گویی
-        - دقت صددرصدی به تاریخ: سال جاری **۱۴۰۵** است. هرگز به اشتباه سال ۱۴۰۵ را به ۱۴۰۴ یا ۱۴۰۳ تغییر نده!
-        - استخراج دقیق شماره بخشنامه، تاریخ‌ها و شروط کلیدی در قالب Bullet Points (•)
-        - خط اول: تیتر صریح و بولد
+        خروجی تو باید دقیقاً شامل ۲ بخش زیر باشد که با جداکننده ---HEADLINE--- از هم تفکیک شده‌اند:
+
+        بخش اول - کپشن پست تلگرام:
+        - لحن کاملاً کوتاه، خنثی، رسمی و دارای بولت‌پوینت‌های دقیق (•)
+        - استخراج شماره بخشنامه، تاریخ‌ها و شرایط کلیدی
+        - سال جاری **۱۴۰۵** است. هرگز سال را به ۱۴۰۴ یا ۱۴۰۳ تغییر نده.
+        - خط اول: تیتر صریح و بولد با تگ <b>
         - خط آخر: 🌐 @EyvaziCoach
-        - برای بولد کردن فقط از تگ <b>استفاده کن</b> و اصلاً ستاره (*) نگذار.
+        - اصلاً از ستاره (*) استفاده نکن.
 
-        بعد از نگارش کپشن، در یک خط جداگانه بنویس:
         ---HEADLINE---
-        و در خط بعد فقط یک تیتر کوتاه و موجز فارسی (حداکثر ۵ کلمه) بدون ذکر سال‌های قدیمی بنویس که روی سربرگ پوستر چاپ شود.
+        (فقط یک تیتر بسیار کوتاه ۳ تا ۵ کلمه‌ای فارسی بنویس که صرفاً موضوع اصلی خبر را بگوید تا روی سربرگ داخل عکس چاپ شود؛ بدون خلاصه کردن خبر)
         """
         try:
             response = text_model.generate_content(prompt)
@@ -281,13 +266,22 @@ def generate_verified_package():
                 
             parts = result.split("---HEADLINE---")
             caption = parts[0].strip()
-            headline = parts[1].strip() if len(parts) > 1 else "اطلاعیه رسمی سازمان امور مالیاتی"
+            headline = parts[1].strip() if len(parts) > 1 else "اطلاعیه رسمی مالیاتی"
             
-            # تولید پرامپت اختصاصی بر اساس سبک ژورنالیستی Editorial Flat Lay
+            image_bytes = None
+            if item.get("image_url"):
+                try:
+                    img_res = requests.get(item["image_url"], timeout=15)
+                    if img_res.status_code == 200:
+                        image_bytes = img_res.content
+                except Exception:
+                    pass
+
             image_prompt = build_editorial_prompt(headline)
-            print(f"Generated Editorial Prompt:\n{image_prompt}")
             
-            image_bytes = generate_story_image(image_prompt)
+            if not image_bytes:
+                image_bytes = generate_story_image(image_prompt)
+                
             return caption, image_bytes, image_prompt
             
         except Exception as e:
@@ -296,42 +290,51 @@ def generate_verified_package():
             
     return None, None, None
 
-def send_to_channel_and_admin(caption, image_bytes=None, prompt_used=None, schedule_date=None):
-    tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto" if image_bytes else f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+def send_to_private_admin(caption, image_prompt, target_time_str):
+    """ارسال متن خبر و پرامپت ساخت تصویر به چت خصوصی ادمین برای خبرهای فاقد عکس"""
+    if not ADMIN_CHAT_ID:
+        print("هشدار: متغیر ADMIN_CHAT_ID در گیت‌هاب تنظیم نشده است!")
+        return
+
+    tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    
+    # پیام اول: متن آماده کپشن
+    msg_caption = f"📝 <b>پیش‌نویس خبر بدون تصویر (هدف: ساعت {target_time_str})</b>\n\n{caption}"
+    requests.post(tg_url, data={"chat_id": ADMIN_CHAT_ID, "text": msg_caption, "parse_mode": "HTML"}, timeout=15)
+    
+    # پیام دوم: پرامپت آماده Nano Banana قابل کپی با یک لمس
+    msg_prompt = (
+        f"🎨 <b>پرامپت ساخت تصویر استوری (Editorial Flat Lay):</b>\n"
+        f"<i>(روی متن زیر بزنید تا کپی شود)</i>\n\n"
+        f"<code>{image_prompt}</code>"
+    )
+    res = requests.post(tg_url, data={"chat_id": ADMIN_CHAT_ID, "text": msg_prompt, "parse_mode": "HTML"}, timeout=15)
+    print(f"ارسال پرامپت به چت خصوصی ادمین: Status {res.status_code}")
+
+def send_to_channels(caption, image_bytes, schedule_date):
+    """ارسال پست‌های دارای تصویر به کانال عمومی تلگرام و بله"""
+    tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         "chat_id": TELEGRAM_CHAT,
-        "parse_mode": "HTML"
+        "caption": caption,
+        "parse_mode": "HTML",
+        "schedule_date": schedule_date
     }
-    if schedule_date:
-        payload["schedule_date"] = schedule_date
-
     try:
-        if image_bytes:
-            payload["caption"] = caption
-            files = {"photo": ("story_editorial.jpg", io.BytesIO(image_bytes), "image/jpeg")}
-            res = requests.post(tg_url, data=payload, files=files, timeout=25)
-        else:
-            payload["text"] = caption
-            res = requests.post(tg_url, data=payload, timeout=15)
-        print(f"Telegram Post Status: {res.status_code}")
-        
-        # اگر TELEGRAM_CHAT_ID روی چت خصوصی تنظیم شده باشد و عکس ساخته نشده باشد، پرامپت را هم بفرستد
-        if not image_bytes and prompt_used and not str(TELEGRAM_CHAT).startswith("-100"):
-            prompt_msg = f"🎨 <b>پرامپت آماده ساخت استوری (Nano Banana):</b>\n\n<code>{prompt_used}</code>"
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                data={"chat_id": TELEGRAM_CHAT, "text": prompt_msg, "parse_mode": "HTML"},
-                timeout=15
-            )
+        files = {"photo": ("story.jpg", io.BytesIO(image_bytes), "image/jpeg")}
+        res = requests.post(tg_url, data=payload, files=files, timeout=25)
+        print(f"Telegram Channel Photo Status: {res.status_code}")
     except Exception as e:
-        print(f"Telegram Error: {e}")
+        print(f"Telegram Channel Error: {e}")
 
-    # ارسال متن رسمی به بله
     try:
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
-        requests.post(f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage", data={"chat_id": BALE_CHAT, "text": bale_caption}, timeout=15)
+        bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
+        files = {"photo": ("story.jpg", io.BytesIO(image_bytes), "image/jpeg")}
+        res_bale = requests.post(bale_url, data={"chat_id": BALE_CHAT, "caption": bale_caption}, files=files, timeout=25)
+        print(f"Bale Channel Photo Status: {res_bale.status_code}")
     except Exception as e:
-        print(f"Bale Error: {e}")
+        print(f"Bale Channel Error: {e}")
 
 def get_next_target():
     iran_tz = pytz.timezone('Asia/Tehran')
@@ -345,12 +348,19 @@ def get_next_target():
 if __name__ == "__main__":
     target_time = get_next_target()
     schedule_timestamp = int(target_time.timestamp())
-    iran_tz = pytz.timezone('Asia/Tehran')
-    print(f"اجرا در ساعت: {datetime.datetime.now(iran_tz).strftime('%H:%M:%S')} | زمان انتشار: {target_time.strftime('%H:%M:%S')}")
+    target_str = target_time.strftime('%H:%M')
     
-    caption, image_bytes, prompt_used = generate_verified_package()
+    iran_tz = pytz.timezone('Asia/Tehran')
+    print(f"اجرا در ساعت: {datetime.datetime.now(iran_tz).strftime('%H:%M:%S')} | زمان هدف: {target_str}")
+    
+    caption, image_bytes, image_prompt = generate_verified_package()
     if not caption:
         print("محتوای تاییدشده‌ای یافت نشد.")
         exit(0)
         
-    send_to_channel_and_admin(caption, image_bytes=image_bytes, prompt_used=prompt_used, schedule_date=schedule_timestamp)
+    if image_bytes:
+        print("خبر دارای تصویر است؛ ارسال مستقیم به کانال‌ها...")
+        send_to_channels(caption, image_bytes, schedule_timestamp)
+    else:
+        print("خبر فاقد تصویر است؛ ارسال متن و پرامپت ساخت تصویر به چت خصوصی ادمین...")
+        send_to_private_admin(caption, image_prompt, target_str)
