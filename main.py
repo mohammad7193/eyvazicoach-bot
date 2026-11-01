@@ -10,11 +10,11 @@ import io
 import base64
 import google.generativeai as genai
 
-# متغیرهای محیطی
+# دریافت متغیرهای محیطی
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID")  # آیدی کانال عمومی
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")     # آیدی عددی چت خصوصی ادمین
+TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 BALE_TOKEN = os.environ.get("BALE_BOT_TOKEN")
 BALE_CHAT = os.environ.get("BALE_CHAT_ID")
 
@@ -189,26 +189,26 @@ Do NOT add any extra body text or summary lines below the title. Ensure the Pers
     return prompt.strip()
 
 def generate_story_image(prompt_text):
-    gemini_image_models = [
-        "gemini-2.0-flash-exp-image-generation",
-        "gemini-2.5-flash-image-preview"
-    ]
-    for m_name in gemini_image_models:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={GEMINI_API_KEY}"
-            payload = {
-                "contents": [{"parts": [{"text": prompt_text}]}],
-                "generationConfig": {"responseModalities": ["IMAGE"]}
-            }
-            res = requests.post(url, json=payload, timeout=45)
-            if res.status_code == 200:
-                data = res.json()
-                parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                for part in parts:
-                    if "inlineData" in part:
-                        return base64.b64decode(part["inlineData"]["data"])
-        except Exception:
-            pass
+    """تولید تصویر با مدل Nano Banana 2 Lite (gemini-3.1-flash-lite-image)"""
+    m_name = "gemini-3.1-flash-lite-image"
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}],
+            "generationConfig": {"responseModalities": ["IMAGE"]}
+        }
+        res = requests.post(url, json=payload, timeout=45)
+        if res.status_code == 200:
+            data = res.json()
+            parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            for part in parts:
+                if "inlineData" in part:
+                    print(f"تصویر استوری با موفقیت توسط مدل {m_name} ساخته شد.")
+                    return base64.b64decode(part["inlineData"]["data"])
+        else:
+            print(f"Model {m_name} status {res.status_code}: {res.text}")
+    except Exception as e:
+         print(f"Exception with {m_name}: {e}")
     return None
 
 def generate_verified_package():
