@@ -10,7 +10,7 @@ import io
 import base64
 import google.generativeai as genai
 
-# دریافت متغیرهای محیطی
+# متغیرهای محیطی
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID")  # آیدی کانال عمومی
@@ -23,7 +23,7 @@ text_model = genai.GenerativeModel('gemini-3.6-flash')
 
 HISTORY_FILE = "history.txt"
 
-# تنوع‌بخش‌های چیدمان سبک Editorial Flat Lay برای جلوگیری از تکراری شدن استوری‌ها
+# تنوع‌بخش‌های چیدمان سبک Editorial Flat Lay
 SURFACES = [
     "deep dark walnut wood office desk with subtle natural grain",
     "matte charcoal slate stone table with subtle mineral textures",
@@ -80,21 +80,18 @@ def is_clean_and_relevant(text):
     if len(text) < 50:
         return False
         
-    # فیلتر اخبار سال‌های گذشته
     old_years = ['۱۴۰۲', '1402', '۱۴۰۳', '1403']
     for old_y in old_years:
         if old_y in text and '۱۴۰۵' not in text and '1405' not in text:
             return False
 
-    # لیست سیاه تبلیغات، دوره‌ها و همایش‌ها
     ad_keywords = [
         'دوره', 'کارگاه', 'وبینار', 'سمینار', 'ثبت نام', 'ثبت‌نام', 'شهریه', 
         'تخفیف', 'ظرفیت', 'استاد', 'مدرس', 'پکیج', 'فروش', 'خرید', 'مشاوره', 
         'تماس بگیرید', 'شماره تماس', 'لینک زیر', 'کلیک کنید', 'استخدام', 'رزومه',
         'همکاری', 'کانال ما', 'پیج', 'اینستاگرام', 'واتساپ', 'تلگرام', 'هدیه',
         'رایگان', 'قرعه کشی', 'قرعه‌کشی', 'اسپانسر', 'تبلیغات', 'معرفی کتاب',
-        'نرم افزار', 'نرم‌افزار', 'دمو', 'جشنواره', 'کد معرف', 'آکادمی', 'موسسه',
-        'پروژه', 'تحقق', 'درآمد مالیاتی', 'استاندار', 'شهردار', 'فرماندار', 'افتتاح'
+        'نرم افزار', 'نرم‌افزار', 'دمو', 'جشنواره', 'کد معرف', 'آکادمی', 'موسسه'
     ]
     for bad in ad_keywords:
         if bad in text:
@@ -109,7 +106,6 @@ def is_clean_and_relevant(text):
     return any(k in text for k in valid_keywords)
 
 def get_intamedia_candidates(history):
-    """رصد مستقیم سازمان امور مالیاتی کشور (intamedia.ir)"""
     candidates = []
     rss_urls = [
         "https://www.intamedia.ir/rss",
@@ -142,7 +138,6 @@ def get_intamedia_candidates(history):
     return candidates
 
 def scrape_telegram_candidates(history):
-    """رصد کانال‌های تخصصی مرجع"""
     target_channels = ["taxpress", "taxinformation", "rahbarhesab", "Econ_Fouri"]
     random.shuffle(target_channels)
     candidates = []
@@ -174,7 +169,6 @@ def scrape_telegram_candidates(history):
     return candidates
 
 def build_editorial_prompt(headline_persian):
-    """ساخت پرامپت استوری به سبک Editorial Flat Lay فقط با تیتر اصلی روی برگه"""
     surface = random.choice(SURFACES)
     items = random.choice(OBJECT_SETS)
     light = random.choice(LIGHTING_MOODS)
@@ -195,7 +189,6 @@ Do NOT add any extra body text or summary lines below the title. Ensure the Pers
     return prompt.strip()
 
 def generate_story_image(prompt_text):
-    """تلاش برای ساخت خودکار عکس در صورت پشتیبانی API"""
     gemini_image_models = [
         "gemini-2.0-flash-exp-image-generation",
         "gemini-2.5-flash-image-preview"
@@ -230,31 +223,31 @@ def generate_verified_package():
         
         prompt = f"""
         نقش:
-        تو طراح تخصصی استوری اینستاگرام و کپی‌رایتر مالیاتی-مدیریتی برای برند «EyvaziCoach» هستی.
+        تو ویراستار ارشد و کپی‌رایتر مالیاتی-مدیریتی برای برند «EyvaziCoach» هستی.
         توجه بسیار مهم زمانی: ما اکنون در **آبان ماه سال ۱۴۰۵ خورشیدی (اکتبر ۲۰۲۶)** هستیم.
         
-        متن ورودی:
+        متن ورودی (متن کامل خبر):
         ---
         {item["text"]}
         ---
 
         شروط رد فوری (فقط کلمه REJECT_AD را خروجی بده):
         1. اگر متن هرگونه تبلیغ دوره، کارگاه، وبینار، نرم‌افزار، مشاوره یا نام مدرس دیگری است.
-        2. اگر خبر منقضی‌شده و مربوط به سال‌های گذشته (مثل سال ۱۴۰۳ یا ۱۴۰۴) است و ارتباطی با سال جاری (۱۴۰۵) ندارد.
-        3. اگر خبر گزارش عملکرد دولتی یا استانی بی‌فایده برای کسب‌وکارهاست.
+        2. اگر خبر منقضی‌شده و مربوط به سال‌های گذشته (مثل سال ۱۴۰۳ یا ۱۴۰۴) است.
 
         خروجی تو باید دقیقاً شامل ۲ بخش زیر باشد که با جداکننده ---HEADLINE--- از هم تفکیک شده‌اند:
 
-        بخش اول - کپشن پست تلگرام:
-        - لحن کاملاً کوتاه، خنثی، رسمی و دارای بولت‌پوینت‌های دقیق (•)
-        - استخراج شماره بخشنامه، تاریخ‌ها و شرایط کلیدی
-        - سال جاری **۱۴۰۵** است. هرگز سال را به ۱۴۰۴ یا ۱۴۰۳ تغییر نده.
-        - خط اول: تیتر صریح و بولد با تگ <b>
+        بخش اول - متن پست تلگرام:
+        - **به هیچ وجه خبر را خلاصه نکن!** تمام جزئیات، پاراگراف‌ها، تبصره‌ها و متن کامل خبر اصلی باید حفظ شود.
+        - فقط متن را از نظر نگارشی و املایی ویراستاری کن و لحن آن را به یک لحن رسمی، حرفه‌ای و رسانه‌ای تبدیل کن.
+        - هرگونه لینک، آیدی تلگرام، یا اضافات تبلیغاتی کانال مبدا را حذف کن.
+        - سال جاری **۱۴۰۵** است. هرگز سال را تغییر نده.
+        - خط اول: تیتر صریح خبر به صورت بولد با تگ <b>
         - خط آخر: 🌐 @EyvaziCoach
         - اصلاً از ستاره (*) استفاده نکن.
 
         ---HEADLINE---
-        (فقط یک تیتر بسیار کوتاه ۳ تا ۵ کلمه‌ای فارسی بنویس که صرفاً موضوع اصلی خبر را بگوید تا روی سربرگ داخل عکس چاپ شود؛ بدون خلاصه کردن خبر)
+        (فقط یک تیتر بسیار کوتاه ۳ تا ۵ کلمه‌ای فارسی بنویس که صرفاً موضوع اصلی خبر را بگوید تا روی سربرگ داخل عکس چاپ شود)
         """
         try:
             response = text_model.generate_content(prompt)
@@ -291,28 +284,23 @@ def generate_verified_package():
     return None, None, None
 
 def send_to_private_admin(caption, image_prompt, target_time_str):
-    """ارسال متن خبر و پرامپت ساخت تصویر به چت خصوصی ادمین برای خبرهای فاقد عکس"""
     if not ADMIN_CHAT_ID:
         print("هشدار: متغیر ADMIN_CHAT_ID در گیت‌هاب تنظیم نشده است!")
         return
 
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
-    # پیام اول: متن آماده کپشن
     msg_caption = f"📝 <b>پیش‌نویس خبر بدون تصویر (هدف: ساعت {target_time_str})</b>\n\n{caption}"
     requests.post(tg_url, data={"chat_id": ADMIN_CHAT_ID, "text": msg_caption, "parse_mode": "HTML"}, timeout=15)
     
-    # پیام دوم: پرامپت آماده Nano Banana قابل کپی با یک لمس
     msg_prompt = (
         f"🎨 <b>پرامپت ساخت تصویر استوری (Editorial Flat Lay):</b>\n"
         f"<i>(روی متن زیر بزنید تا کپی شود)</i>\n\n"
         f"<code>{image_prompt}</code>"
     )
-    res = requests.post(tg_url, data={"chat_id": ADMIN_CHAT_ID, "text": msg_prompt, "parse_mode": "HTML"}, timeout=15)
-    print(f"ارسال پرامپت به چت خصوصی ادمین: Status {res.status_code}")
+    requests.post(tg_url, data={"chat_id": ADMIN_CHAT_ID, "text": msg_prompt, "parse_mode": "HTML"}, timeout=15)
 
 def send_to_channels(caption, image_bytes, schedule_date):
-    """ارسال پست‌های دارای تصویر به کانال عمومی تلگرام و بله"""
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         "chat_id": TELEGRAM_CHAT,
@@ -322,8 +310,7 @@ def send_to_channels(caption, image_bytes, schedule_date):
     }
     try:
         files = {"photo": ("story.jpg", io.BytesIO(image_bytes), "image/jpeg")}
-        res = requests.post(tg_url, data=payload, files=files, timeout=25)
-        print(f"Telegram Channel Photo Status: {res.status_code}")
+        requests.post(tg_url, data=payload, files=files, timeout=25)
     except Exception as e:
         print(f"Telegram Channel Error: {e}")
 
@@ -331,8 +318,7 @@ def send_to_channels(caption, image_bytes, schedule_date):
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
         bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
         files = {"photo": ("story.jpg", io.BytesIO(image_bytes), "image/jpeg")}
-        res_bale = requests.post(bale_url, data={"chat_id": BALE_CHAT, "caption": bale_caption}, files=files, timeout=25)
-        print(f"Bale Channel Photo Status: {res_bale.status_code}")
+        requests.post(bale_url, data={"chat_id": BALE_CHAT, "caption": bale_caption}, files=files, timeout=25)
     except Exception as e:
         print(f"Bale Channel Error: {e}")
 
