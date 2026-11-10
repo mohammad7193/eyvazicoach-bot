@@ -11,6 +11,7 @@ import google.generativeai as genai
 
 # دریافت متغیرهای محیطی
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")  # استفاده از کلید پکسلز شما برای عکس‌های جایگزین
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT_ID")
 BALE_TOKEN = os.environ.get("BALE_BOT_TOKEN")
@@ -52,6 +53,7 @@ def clean_raw_text(raw_html):
     text = re.sub(r't\.me/\S+', '', text)
     text = re.sub(r'09\d{9}', '', text)
     text = re.sub(r'۰۹[۰-۹]{9}', '', text)
+    text = re.sub(r'/[^\s]+$', '', text) # حذف امضاهای خبری مثل /ایسنا یا /زومان در انتهای متن
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
@@ -59,50 +61,42 @@ def is_clean_and_relevant(text):
     if len(text) < 60:
         return False
         
-    # فیلتر اخبار سال‌های گذشته
     old_years = ['۱۴۰۲', '1402', '۱۴۰۳', '1403']
     for old_y in old_years:
         if old_y in text and '۱۴۰۵' not in text and '1405' not in text:
             return False
 
-    # فیلتر تبلیغات، دوره‌ها و اخبار تشریفاتی دولتی
     ad_keywords = [
         'دوره', 'کارگاه', 'وبینار', 'سمینار', 'ثبت نام', 'ثبت‌نام', 'شهریه', 
         'تخفیف', 'ظرفیت', 'استاد', 'مدرس', 'پکیج', 'فروش', 'خرید', 'مشاوره', 
         'تماس بگیرید', 'شماره تماس', 'لینک زیر', 'کلیک کنید', 'استخدام', 'رزومه',
-        'همکاری', 'کانال ما', 'پیج', 'اینستاگرام', 'واتساپ', 'تلگرام', 'هدیه',
-        'رایگان', 'قرعه کشی', 'قرعه‌کشی', 'اسپانسر', 'تبلیغات', 'معرفی کتاب',
-        'نرم افزار', 'نرم‌افزار', 'دمو', 'جشنواره', 'کد معرف', 'آکادمی', 'موسسه',
-        'پروژه', 'تحقق', 'درآمد مالیاتی', 'استاندار', 'شهردار', 'فرماندار', 'افتتاح', 'نشست'
+        'همکاری', 'کانال ما', 'پیج', 'اینستاگرام', 'واتساپ', 'هدیه',
+        'قرعه کشی', 'قرعه‌کشی', 'اسپانسر', 'تبلیغات', 'کد معرف', 'آکادمی', 'موسسه'
     ]
     for bad in ad_keywords:
         if bad in text:
             return False
             
+    # کلمات کلیدی جامع (مالیاتی + بانکی + اقتصاد کلان)
     valid_keywords = [
-        'مالیات', 'ارزش افزوده', 'مودی', 'مؤدی', 'مودیان', 'سامانه مودیان', 
-        'اظهارنامه', 'بخشنامه', 'تبصره', 'ماده', 'معافیت', 'پایانه فروشگاهی', 
-        'جرایم', 'جریمه', 'صورتحساب', 'الکترونیکی', 'کارفرما', 'کارگر', 
-        'حقوق', 'دستمزد', 'بیمه', 'تامین اجتماعی', 'دیوان عدالت', 'دادنامه', 'چک', 'اصناف'
+        'مالیات', 'ارزش افزوده', 'مودیان', 'سامانه مودیان', 'اظهارنامه', 'بخشنامه',
+        'پایانه فروشگاهی', 'جرایم', 'جریمه', 'کارفرما', 'کارگر', 'دستمزد', 'بیمه', 'دیوان عدالت', 
+        'ساتنا', 'پایا', 'سامانه پل', 'بانک مرکزی', 'سقف تراکنش', 'کف مبلغ',
+        'رشد اقتصادی', 'تولید ناخالص', 'اقتصاد ایران', 'تورم', 'تسهیلات', 'حساب تجاری', 'چک صیادی'
     ]
     return any(k in text for k in valid_keywords)
 
 def extract_article_image_and_body(url, base_domain=""):
-    """باز کردن صفحه خبر در سایت‌ها و استخراج همزمان عکس شاخص (og:image) و متن کامل مقاله"""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=15)
         if resp.status_code != 200:
             return None, ""
         html = resp.text
         
-        # ۱. استخراج تصویر شاخص
         img_url = None
         match = re.search(r'property=[\'"]og:image[\'"]\s+content=[\'"]([^\'"]+)[\'"]', html, re.IGNORECASE)
         if not match:
             match = re.search(r'content=[\'"]([^\'"]+)[\'"]\s+property=[\'"]og:image[\'"]', html, re.IGNORECASE)
-        if not match:
-            match = re.search(r'<img[^>]+src=[\'"]([^\'"]+)[\'"][^>]+itemprop=[\'"]image[\'"]', html, re.IGNORECASE)
-            
         if match:
             raw_img = match.group(1).strip()
             if raw_img.startswith("//"):
@@ -112,12 +106,11 @@ def extract_article_image_and_body(url, base_domain=""):
             elif raw_img.startswith("http"):
                 img_url = raw_img
 
-        # ۲. استخراج پاراگراف‌های متن خبر برای جلوگیری از ناقص بودن متن
         paragraphs = re.findall(r'<p[^>]*>([\s\S]*?)</p>', html)
         valid_paras = []
         for p in paragraphs:
             clean_p = clean_raw_text(p)
-            if len(clean_p) > 40 and not any(x in clean_p for x in ['کلیه حقوق', 'انتهای پیام', 'اخبار مرتبط', 'عضویت در']):
+            if len(clean_p) > 40 and not any(x in clean_p for x in ['کلیه حقوق', 'انتهای پیام', 'اخبار مرتبط']):
                 valid_paras.append(clean_p)
                 
         body_text = "\n\n".join(valid_paras[:6])
@@ -127,12 +120,8 @@ def extract_article_image_and_body(url, base_domain=""):
         return None, ""
 
 def get_intamedia_candidates(history):
-    """رصد سایت رسمی سازمان امور مالیاتی (فقط اخبار دارای عکس)"""
     candidates = []
-    rss_urls = [
-        "https://www.intamedia.ir/rss",
-        "https://www.intamedia.ir/news/rss"
-    ]
+    rss_urls = ["https://www.intamedia.ir/rss", "https://www.intamedia.ir/news/rss"]
     for url in rss_urls:
         try:
             feed = feedparser.parse(url)
@@ -152,99 +141,18 @@ def get_intamedia_candidates(history):
                 if not img_url:
                     img_url = page_img
                     
-                # قانون طلایی: بدون عکس = رد فوری
-                if not img_url:
-                    continue
-                    
                 summary = clean_raw_text(getattr(entry, 'summary', ''))
                 full_text = f"{title}\n{summary}\n{page_body}".strip()
                 
                 if is_clean_and_relevant(full_text):
-                    candidates.append({
-                        "text": full_text,
-                        "image_url": img_url,
-                        "hash": t_hash,
-                        "source": "intamedia.ir"
-                    })
+                    candidates.append({"text": full_text, "image_url": img_url, "hash": t_hash, "source": "intamedia.ir"})
         except Exception as e:
             print(f"Intamedia error: {e}")
     return candidates
 
-def get_news_websites_candidates(history):
-    """رصد سایت‌های تخصصی اقتصادی که همیشه عکس باکیفیت دارند (اکوایران، کاماپرس، تجارت‌نیوز)"""
-    candidates = []
-    
-    # ۱. فیدهای RSS مستقیم سایت‌های تخصصی
-    rss_sources = [
-        ("https://www.tejaratnews.com/feed", "https://www.tejaratnews.com", "tejaratnews.com"),
-        ("https://kamapress.com/feed", "https://kamapress.com", "kamapress.com"),
-        ("https://www.eghtesadonline.com/fa/rss/allnews", "https://www.eghtesadonline.com", "eghtesadonline.com")
-    ]
-    random.shuffle(rss_sources)
-    
-    for rss_url, domain, name in rss_sources:
-        try:
-            feed = feedparser.parse(rss_url)
-            for entry in feed.entries[:12]:
-                title = entry.title.strip()
-                if not is_clean_and_relevant(title):
-                    continue
-                t_hash = get_text_hash(title)
-                if t_hash in history:
-                    continue
-                    
-                img_url, body_text = extract_article_image_and_body(entry.link, domain)
-                if not img_url:
-                    continue
-                    
-                summary = clean_raw_text(getattr(entry, 'summary', ''))
-                full_text = f"{title}\n{summary}\n{body_text}".strip()
-                
-                if is_clean_and_relevant(full_text):
-                    candidates.append({
-                        "text": full_text,
-                        "image_url": img_url,
-                        "hash": t_hash,
-                        "source": name
-                    })
-        except Exception as e:
-            print(f"RSS error ({name}): {e}")
-
-    # ۲. اسکرپ مستقیم صفحه اختصاصی مالیات اکوایران
-    try:
-        eco_url = "https://ecoiran.com/%D8%A8%D8%AE%D8%B4-%D9%85%D8%A7%D9%84%DB%8C%D8%A7%D8%AA-94"
-        resp = requests.get(eco_url, headers=HEADERS, timeout=15)
-        if resp.status_code == 200:
-            matches = re.findall(r'<a[^>]+href="(/news/\d+[^"]*)"[^>]*>([\s\S]*?)</a>', resp.text)
-            for link, raw_title in matches[:8]:
-                title = clean_raw_text(raw_title)
-                if len(title) < 25:
-                    continue
-                t_hash = get_text_hash(title)
-                if t_hash in history:
-                    continue
-                    
-                full_link = "https://ecoiran.com" + link
-                img_url, body_text = extract_article_image_and_body(full_link, "https://ecoiran.com")
-                if not img_url:
-                    continue
-                    
-                full_text = f"{title}\n{body_text}".strip()
-                if is_clean_and_relevant(full_text):
-                    candidates.append({
-                        "text": full_text,
-                        "image_url": img_url,
-                        "hash": t_hash,
-                        "source": "ecoiran.com"
-                    })
-    except Exception as e:
-        print(f"Ecoiran scrape error: {e}")
-
-    return candidates
-
 def scrape_telegram_candidates(history):
-    """رصد کانال‌های تلگرامی مرجع - فقط و فقط پست‌هایی که عکس واقعی دارند"""
-    target_channels = ["ecoiran_com", "Econ_Fouri", "taxpress", "rahbarhesab", "taxinformation"]
+    # کانال‌های اقتصادی و مالیاتی جامع به همراه eskannews
+    target_channels = ["ecoiran_com", "Econ_Fouri", "taxpress", "rahbarhesab", "taxinformation", "eskannews_com"]
     random.shuffle(target_channels)
     candidates = []
     
@@ -257,7 +165,6 @@ def scrape_telegram_candidates(history):
             message_blocks = re.findall(r'<div class="tgme_widget_message_wrap[^"]*">([\s\S]*?)</div>\s*</div>\s*</div>', resp.text)
             for block in reversed(message_blocks[-10:]):
                 
-                # استخراج دقیق عکس پست از تلگرام
                 img_url = None
                 photo_wrap = re.search(r'tgme_widget_message_photo_wrap[\s\S]*?background-image:url\(\'([^\']+)\'\)', block)
                 if photo_wrap:
@@ -267,10 +174,6 @@ def scrape_telegram_candidates(history):
                             img_url = 'https:' + raw_img
                         elif raw_img.startswith('http'):
                             img_url = raw_img
-                
-                # قانون طلایی: اگر پست تلگرامی عکس نداشت، فوراً رد شود
-                if not img_url:
-                    continue
                 
                 text_match = re.search(r'<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)</div>', block)
                 if not text_match:
@@ -285,7 +188,7 @@ def scrape_telegram_candidates(history):
                 if is_clean_and_relevant(clean_text):
                     candidates.append({
                         "text": clean_text,
-                        "image_url": img_url,
+                        "image_url": img_url, # ممکنه None باشه، که بعداً با Pexels جبران میشه
                         "hash": t_hash,
                         "source": f"@{ch}"
                     })
@@ -293,62 +196,71 @@ def scrape_telegram_candidates(history):
             print(f"Error scraping @{ch}: {e}")
     return candidates
 
+def get_pexels_fallback_image():
+    """اگر خبر عکس نداشت، یک عکس فاخر مدیریتی/مالی از Pexels برمی‌دارد"""
+    if not PEXELS_API_KEY:
+        return None
+    try:
+        queries = ["office desk flat lay", "business desktop", "minimalist office dark", "financial newspaper"]
+        query = random.choice(queries)
+        url = f"https://api.pexels.com/v1/search?query={query}&per_page=15&orientation=portrait"
+        headers = {"Authorization": PEXELS_API_KEY}
+        res = requests.get(url, headers=headers, timeout=10)
+        
+        if res.status_code == 200:
+            photos = res.json().get("photos", [])
+            if photos:
+                photo = random.choice(photos)
+                img_url = photo["src"]["large"]
+                img_res = requests.get(img_url, timeout=10)
+                if img_res.status_code == 200:
+                    print("عکس جایگزین با موفقیت از Pexels دانلود شد.")
+                    return img_res.content
+    except Exception as e:
+        print(f"Pexels Error: {e}")
+    return None
+
 def download_valid_image(url):
-    """دانلود تصویر و اطمینان از اینکه فایل واقعاً یک عکس معتبر است"""
+    if not url: return None
     try:
         res = requests.get(url, headers=HEADERS, timeout=15)
         if res.status_code == 200 and len(res.content) > 5000:
             return res.content
-    except Exception as e:
-        print(f"Image download failed ({url}): {e}")
+    except Exception:
+        pass
     return None
 
 def generate_verified_package():
     history = load_history()
-    
-    # تجمیع کاندیداهای عکس‌دار (اولویت اول: سایت مالیاتی و سایت‌های تخصصی، اولویت دوم: کانال‌های عکس‌دار)
-    candidates = (
-        get_intamedia_candidates(history) + 
-        get_news_websites_candidates(history) + 
-        scrape_telegram_candidates(history)
-    )
+    candidates = get_intamedia_candidates(history) + scrape_telegram_candidates(history)
     
     if not candidates:
         return None, None
 
     for item in candidates[:4]:
-        # ابتدا مطمئن می‌شویم عکس خبر واقعاً قابل دانلود است
-        image_bytes = download_valid_image(item["image_url"])
-        if not image_bytes:
-            continue
-            
         save_history(item["hash"])
         raw_full_text = item["text"]
         
         prompt = f"""
         نقش:
-        تو ویراستار ارشد و کپی‌رایتر مالیاتی-مدیریتی برای برند «EyvaziCoach» هستی.
-        توجه بسیار مهم زمانی: ما اکنون در **آبان ماه سال ۱۴۰۵ خورشیدی (نوامبر ۲۰۲۶)** هستیم.
+        تو سردبیر ارشد مالی، مالیاتی و اقتصادی برای برند «EyvaziCoach» هستی. ما در سال ۱۴۰۵ هستیم.
         
-        متن ورودی (متن کامل خبر):
+        متن ورودی (متن خام خبر):
         ---
         {raw_full_text[:2500]}
         ---
 
-        شروط رد فوری (فقط کلمه REJECT_AD را خروجی بده):
-        1. اگر متن هرگونه تبلیغ دوره، کارگاه، وبینار، نرم‌افزار، مشاوره یا نام مدرس دیگری است.
-        2. اگر خبر منقضی‌شده و مربوط به سال‌های گذشته (مثل سال ۱۴۰۳ یا ۱۴۰۴) است.
-        3. اگر خبر گزارش عملکرد دولتی یا استانی بی‌فایده است و هیچ اثر عملی برای صاحبان کسب‌وکار، حسابداران یا مردم ندارد.
+        شروط رد فوری (فقط بنویس REJECT_AD):
+        1. اگر متن تبلیغ دوره، وبینار، نرم‌افزار، یا نام مدرس دیگری است.
+        2. اگر خبر مربوط به سال‌های گذشته (مثل ۱۴۰۳) است.
 
-        دستورالعمل خروجی (در صورت تایید خبر):
-        - **به هیچ وجه خبر را خلاصه نکن!** تمام جزئیات، اعداد، بخشنامه‌ها، پاراگراف‌ها و تبصره‌های متن اصلی باید به صورت کامل و جامع نوشته شوند.
-        - فقط متن را از نظر نگارشی و املایی ویراستاری کن و لحن آن را به یک لحن رسمی، حرفه‌ای و رسانه‌ای تبدیل کن.
-        - توجه: کپشن عکس در تلگرام حداکثر ۱۰۲۴ کاراکتر جا دارد؛ بنابراین کل متن خبر را بدون حذف نکات مهم در حدود ۱۲۰ تا ۱۵۰ کلمه تنظیم کن تا در کپشن تلگرام کامل جا شود.
-        - هرگونه لینک، نام خبرگزاری یا آیدی تلگرام مبدا را حذف کن.
-        - سال جاری **۱۴۰۵** است. هرگز سال را تغییر نده.
-        - خط اول: 📌 + تیتر صریح خبر به صورت بولد با تگ <b>
+        دستورالعمل نگارش کپشن تلگرام:
+        - **به هیچ وجه اعداد، مبالغ بانکی (ساتنا، پایا و...)، یا درصدهای اقتصادی را حذف یا خلاصه نکن!** این داده‌ها حیاتی هستند.
+        - لحن را به یک گزارش رسمی، شیک و حرفه‌ای رسانه‌ای تبدیل کن و غلط‌های نگارشی را برطرف کن.
+        - مبالغ و شرایط کلیدی را حتماً در قالب بولت‌پوینت‌های خوانا (•) لیست کن تا صاحبان کسب‌وکار راحت بخوانند.
+        - هرگونه نام خبرگزاری (مثل ایسنا، زومان و...) یا لینک مبدا را حذف کن.
+        - خط اول: 📌 + تیتر صریح و جذاب خبر به صورت بولد با تگ <b>
         - خط آخر: 🌐 @EyvaziCoach
-        - اصلاً از ستاره (*) استفاده نکن.
         """
         try:
             response = text_model.generate_content(prompt)
@@ -358,7 +270,15 @@ def generate_verified_package():
                 print(f"پست از {item['source']} توسط هوش مصنوعی رد شد.")
                 continue
             
-            print(f"خبر معتبر همراه با تصویر از منبع {item['source']} تایید شد.")
+            # ۱. تلاش برای دانلود عکس اصلی خبر
+            image_bytes = download_valid_image(item["image_url"])
+            
+            # ۲. اگر عکس نداشت، دانلود خودکار از Pexels
+            if not image_bytes:
+                print("خبر عکس نداشت، در حال دریافت عکس جایگزین از Pexels...")
+                image_bytes = get_pexels_fallback_image()
+            
+            print(f"خبر معتبر از منبع {item['source']} تایید و آماده شد.")
             return caption, image_bytes
             
         except Exception as e:
@@ -368,27 +288,36 @@ def generate_verified_package():
     return None, None
 
 def send_to_channels(caption, image_bytes, schedule_date):
-    """ارسال مستقیم پست عکس‌دار به کانال عمومی تلگرام و بله"""
-    tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto" if image_bytes else f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT,
-        "caption": caption,
         "parse_mode": "HTML",
         "schedule_date": schedule_date
     }
+    
+    # ارسال به تلگرام
     try:
-        files = {"photo": ("news_image.jpg", io.BytesIO(image_bytes), "image/jpeg")}
-        res = requests.post(tg_url, data=payload, files=files, timeout=25)
-        print(f"Telegram Channel Photo Status: {res.status_code}")
+        if image_bytes:
+            payload["caption"] = caption
+            files = {"photo": ("news_image.jpg", io.BytesIO(image_bytes), "image/jpeg")}
+            res = requests.post(tg_url, data=payload, files=files, timeout=25)
+        else:
+            payload["text"] = caption
+            res = requests.post(tg_url, data=payload, timeout=25)
+        print(f"Telegram Channel Status: {res.status_code}")
     except Exception as e:
         print(f"Telegram Channel Error: {e}")
 
+    # ارسال به بله
     try:
         bale_caption = caption.replace('<b>', '').replace('</b>', '')
-        bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto"
-        files = {"photo": ("news_image.jpg", io.BytesIO(image_bytes), "image/jpeg")}
-        res_bale = requests.post(bale_url, data={"chat_id": BALE_CHAT, "caption": bale_caption}, files=files, timeout=25)
-        print(f"Bale Channel Photo Status: {res_bale.status_code}")
+        bale_url = f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendPhoto" if image_bytes else f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage"
+        
+        if image_bytes:
+            files = {"photo": ("news_image.jpg", io.BytesIO(image_bytes), "image/jpeg")}
+            requests.post(bale_url, data={"chat_id": BALE_CHAT, "caption": bale_caption}, files=files, timeout=25)
+        else:
+            requests.post(bale_url, data={"chat_id": BALE_CHAT, "text": bale_caption}, timeout=25)
     except Exception as e:
         print(f"Bale Channel Error: {e}")
 
@@ -410,8 +339,8 @@ if __name__ == "__main__":
     print(f"اجرا در ساعت: {datetime.datetime.now(iran_tz).strftime('%H:%M:%S')} | زمان هدف انتشار: {target_str}")
     
     caption, image_bytes = generate_verified_package()
-    if not caption or not image_bytes:
-        print("هیچ خبر عکس‌دار جدیدی در این نوبت یافت نشد. خروج.")
+    if not caption:
+        print("هیچ خبر جدیدی در این نوبت یافت نشد. خروج.")
         exit(0)
         
     send_to_channels(caption, image_bytes, schedule_timestamp)
